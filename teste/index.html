@@ -652,8 +652,14 @@
         });
         if (error) throw error;
         loginStatus.textContent = 'Confira seu e-mail e abra o link recebido no navegador em que quer usar o Captura.';
-      } catch {
-        loginStatus.textContent = 'Não foi possível enviar o link. Confira o e-mail e tente novamente.';
+      } catch (error) {
+        if (error?.code === 'over_email_send_rate_limit') {
+          loginStatus.textContent = 'O limite de envio de e-mails foi atingido. Se já recebeu um link válido, use-o. Caso contrário, aguarde antes de solicitar outro.';
+        } else if (error?.status === 429) {
+          loginStatus.textContent = 'Houve muitas tentativas seguidas. Aguarde antes de solicitar outro link.';
+        } else {
+          loginStatus.textContent = 'Não foi possível enviar o link de acesso. Tente novamente mais tarde.';
+        }
       } finally {
         button.disabled = false;
       }
