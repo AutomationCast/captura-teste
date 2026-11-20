@@ -5,57 +5,128 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Captura</title>
   <style>
-    :root { color-scheme: light; font: 100%/1.5 system-ui, sans-serif; color: #162622; background: #f0f5f2; }
+    :root { color-scheme: light; font: 100%/1.5 system-ui, sans-serif; color: #1d211f; background: #f8f9f8; }
     body { margin: 0; }
-    main { max-width: 36rem; margin: auto; padding: clamp(1rem, 5vw, 3rem); }
-    h1 { margin: 0 0 1rem; font-size: clamp(2rem, 8vw, 3rem); letter-spacing: -.04em; }
-    h2 { margin: 0 0 .75rem; font-size: 1.25rem; }
-    #capture, section { background: #fff; border: 1px solid #cfddd5; border-radius: 1rem; padding: 1rem; }
-    label { display: block; font-weight: 650; margin-bottom: .5rem; }
-    textarea { box-sizing: border-box; width: 100%; min-height: 6rem; padding: .75rem; border: 1px solid #627a6d; border-radius: .5rem; font: inherit; resize: vertical; }
-    button { width: 100%; min-height: 3rem; margin-top: .5rem; border: 0; border-radius: .5rem; background: #146348; color: white; font: inherit; font-weight: 650; }
-    button:disabled { opacity: .6; }
-    :focus-visible { outline: 3px solid #146348; outline-offset: 3px; }
-    #status { min-height: 1.5em; margin: .5rem 0; }
-    #status[data-error] { color: #9a2424; }
-    #empty { margin: 0; color: #4d6359; }
-    section + section { margin-top: 1rem; }
-    .actions { display: flex; flex-wrap: wrap; gap: .5rem; }
-    .actions button { width: auto; padding: 0 .8rem; background: #e4efe9; color: #162622; }
-    li p { margin: 0; }
+    main { max-width: 44rem; margin: auto; padding: clamp(.75rem, 4vw, 2rem); }
+    h1 { margin: 0 0 1rem; font-size: 1.75rem; letter-spacing: -.04em; }
+    h2 { margin: 0 0 .5rem; font-size: 1.125rem; }
+    p { margin: 0; }
+    label { display: block; font-weight: 650; margin-bottom: .35rem; }
+    textarea, select, button { font: inherit; color: inherit; }
+    textarea, select { box-sizing: border-box; width: 100%; border: 1px solid #757c77; background: white; border-radius: .7rem; padding: .55rem .7rem; }
+    textarea { display: block; min-height: 5rem; resize: vertical; }
+    select, button, summary { min-height: 2.75rem; }
+    button, summary { cursor: pointer; }
+    button { border: 1px solid #b6bcb8; border-radius: 2rem; padding: .35rem .8rem; background: white; }
+    button:disabled { cursor: default; opacity: .55; }
+    :focus-visible { outline: 3px solid #447ab5; outline-offset: 2px; }
+    .capture-actions { display: flex; align-items: end; gap: .5rem; margin: .65rem 0; }
+    .capture-actions > div { min-width: 0; flex: 1; }
+    .primary, [aria-pressed="true"] { background: #222723; color: white; border-color: #222723; }
+    #dictation, .muted { color: #515b54; font-size: .875rem; }
+    #status { min-height: 1.5em; margin: .45rem 0; font-size: .875rem; }
+    #status[data-error], .high { color: #a12525; }
+    .counts { display: grid; grid-template-columns: repeat(3, 1fr); text-align: center; gap: .35rem; padding: .65rem 0 1.15rem; }
+    .counts strong { display: block; font-size: 1.3rem; }
+    nav { display: flex; flex-wrap: wrap; gap: .3rem; margin-bottom: .65rem; }
+    nav button { padding-inline: clamp(.5rem, 2vw, .8rem); font-size: .875rem; }
     ul { list-style: none; margin: 0; padding: 0; }
-    li { padding: .75rem 0; border-top: 1px solid #dbe5df; white-space: pre-wrap; overflow-wrap: anywhere; }
+    li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: .5rem; margin-bottom: .45rem; padding: .55rem; border: 1px solid #d4dad6; border-radius: .85rem; background: white; }
+    .description { padding-top: .55rem; white-space: pre-wrap; overflow-wrap: anywhere; font-weight: 600; }
+    .done .description { text-decoration: line-through; }
+    .metadata { display: flex; flex-wrap: wrap; gap: .15rem .65rem; }
+    .toggle { width: 2.75rem; padding: 0; border-color: transparent; background: transparent; display: grid; place-items: center; }
+    .toggle span { display: grid; place-items: center; width: 1.25rem; height: 1.25rem; border: 1px solid #727c75; border-radius: 50%; }
+    .done .toggle span { background: #222723; color: white; }
+    details { display: contents; }
+    summary { display: grid; place-items: center; width: 2.75rem; border-radius: .5rem; font-size: 1.35rem; }
+    summary::-webkit-details-marker { display: none; }
+    summary:hover { background: #eef0ee; }
+    .menu { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: .35rem; padding-bottom: .25rem; }
+    dialog { box-sizing: border-box; width: min(28rem, calc(100% - 2rem)); max-height: 90dvh; border: 1px solid #a9b2ab; border-radius: .85rem; padding: 1rem; }
+    dialog::backdrop { background: #19201c80; }
+    dialog label { margin-top: .65rem; }
+    .dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .45rem; margin-top: .85rem; }
+    #dialog-error { color: #a12525; margin-top: .4rem; }
   </style>
 </head>
 <body>
   <main>
     <h1>Captura</h1>
     <form id="capture">
-      <label for="task">Nova tarefa</label>
-      <textarea id="task" placeholder="O que você quer lembrar?" required maxlength="2000"></textarea>
-      <button id="save" type="submit" disabled>Salvar tarefa</button>
+      <label for="task">O que você precisa lembrar?</label>
+      <textarea id="task" placeholder="Ex.: Ligar para o dentista ou comprar café" maxlength="2000" required aria-describedby="dictation"></textarea>
+      <div class="capture-actions">
+        <div><label for="category">Categoria opcional</label><select id="category"></select></div>
+        <button id="save" class="primary" type="submit" disabled>Capturar</button>
+      </div>
+      <p id="dictation">Para ditar, toque no campo e use o microfone do teclado, se disponível.</p>
     </form>
     <p id="status" role="status"></p>
-    <section aria-labelledby="inbox">
-      <h2 id="inbox">Entrada</h2>
-      <p id="empty" hidden>Nenhuma tarefa registrada.</p>
-      <ul id="tasks"></ul>
-    </section>
-    <section aria-labelledby="completed-heading">
-      <h2 id="completed-heading">Concluídas</h2>
-      <p id="completed-empty" hidden>Nenhuma tarefa concluída.</p>
-      <ul id="completed"></ul>
+    <div class="counts" aria-label="Resumo de demandas">
+      <p><strong id="count-inbox">0</strong><span class="muted">Na entrada</span></p>
+      <p><strong id="count-today">0</strong><span class="muted">Para hoje</span></p>
+      <p><strong id="count-planned">0</strong><span class="muted">Planejadas</span></p>
+    </div>
+    <section aria-labelledby="demands">
+      <h2 id="demands">Minhas demandas</h2>
+      <nav aria-label="Listas de tarefas">
+        <button type="button" data-list="inbox" aria-pressed="true">Entrada</button>
+        <button type="button" data-list="today" aria-pressed="false">Hoje</button>
+        <button type="button" data-list="planned" aria-pressed="false">Planejado</button>
+        <button type="button" data-list="done" aria-pressed="false">Concluído</button>
+      </nav>
+      <p id="empty" class="muted" hidden>Nenhuma tarefa nesta lista.</p>
+      <ul id="tasks" aria-label="Entrada"></ul>
     </section>
   </main>
+
+  <dialog id="task-dialog" aria-labelledby="dialog-title">
+    <form id="edit-task">
+      <h2 id="dialog-title">Editar tarefa</h2>
+      <label for="edit-description">Descrição</label>
+      <textarea id="edit-description" maxlength="2000" required></textarea>
+      <label for="edit-category">Categoria</label>
+      <select id="edit-category"></select>
+      <label for="edit-priority">Prioridade</label>
+      <select id="edit-priority"><option value="normal">Normal</option><option value="high">Alta</option></select>
+      <p id="dialog-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button id="cancel-edit" type="button">Cancelar</button>
+        <button id="save-edit" type="submit" class="primary">Salvar edição</button>
+      </div>
+    </form>
+  </dialog>
+
   <script>
+    const listLabels = { inbox: 'Entrada', today: 'Hoje', planned: 'Planejado', done: 'Concluído' };
+    const categories = ['', 'Casa', 'Pessoal', 'Família', 'Finanças', 'Trabalho', 'Lazer', 'Outros'];
     const form = document.querySelector('#capture');
     const input = document.querySelector('#task');
+    const category = document.querySelector('#category');
     const save = document.querySelector('#save');
     const status = document.querySelector('#status');
+    const tabs = Array.from(document.querySelectorAll('[data-list]'));
     const list = document.querySelector('#tasks');
     const empty = document.querySelector('#empty');
-    const completed = document.querySelector('#completed');
-    const completedEmpty = document.querySelector('#completed-empty');
+    const dialog = document.querySelector('#task-dialog');
+    const editForm = document.querySelector('#edit-task');
+    const editDescription = document.querySelector('#edit-description');
+    const editCategory = document.querySelector('#edit-category');
+    const editPriority = document.querySelector('#edit-priority');
+    const cancelEdit = document.querySelector('#cancel-edit');
+    const saveEdit = document.querySelector('#save-edit');
+    const dialogError = document.querySelector('#dialog-error');
+
+    let db;
+    let tasks = [];
+    let activeList = 'inbox';
+    let editingId = null;
+    let busy = false;
+
+    for (const select of [category, editCategory]) {
+      for (const value of categories) select.add(new Option(value || 'Sem categoria', value));
+    }
 
     function openDatabase() {
       return new Promise((resolve, reject) => {
@@ -97,85 +168,8 @@
       });
     }
 
-    function action(label, handler, type = 'button') {
-      const button = document.createElement('button');
-      button.type = type;
-      button.textContent = label;
-      if (handler) button.addEventListener('click', handler);
-      return button;
-    }
-
-    function showTask(db, task, previous) {
-      const destination = task.done ? completed : list;
-      const item = document.createElement('li');
-      item.dataset.id = task.id;
-      const description = document.createElement('p');
-      description.textContent = task.description;
-      const actions = document.createElement('div');
-      actions.className = 'actions';
-
-      function edit() {
-        const editor = document.createElement('form');
-        const field = document.createElement('textarea');
-        field.setAttribute('aria-label', 'Editar tarefa');
-        field.value = task.description;
-        field.maxLength = input.maxLength;
-        field.required = true;
-        const controls = document.createElement('div');
-        controls.className = 'actions';
-        const submit = action('Salvar edição', null, 'submit');
-        const cancel = action('Cancelar', () => {
-          item.replaceChildren(description, actions);
-          editButton.focus();
-        });
-        controls.append(submit, cancel);
-        editor.append(field, controls);
-        editor.addEventListener('submit', async event => {
-          event.preventDefault();
-          const text = field.value.trim();
-          if (!text) {
-            message('Digite uma descrição antes de salvar.', true);
-            field.focus();
-            return;
-          }
-          field.readOnly = submit.disabled = cancel.disabled = true;
-          try {
-            const updated = await updateTask(db, task.id, { description: text });
-            showTask(db, updated, item).querySelector('button').focus();
-            message('Tarefa atualizada.');
-          } catch {
-            message('Não foi possível salvar a edição. Tente novamente.', true);
-            field.readOnly = submit.disabled = cancel.disabled = false;
-          }
-        });
-        item.replaceChildren(editor);
-        field.focus();
-      }
-
-      const editButton = action('Editar', edit);
-      const toggle = action(task.done ? 'Reabrir' : 'Concluir', async () => {
-        editButton.disabled = toggle.disabled = true;
-        try {
-          const updated = await updateTask(db, task.id, { done: !task.done });
-          showTask(db, updated, item).querySelector('button:last-child').focus();
-          message(updated.done ? 'Tarefa concluída.' : 'Tarefa reaberta.');
-        } catch {
-          message('Não foi possível atualizar a tarefa. Tente novamente.', true);
-          editButton.disabled = toggle.disabled = false;
-        }
-      });
-      actions.append(editButton, toggle);
-      item.append(description, actions);
-      previous?.remove();
-      const next = Array.from(destination.children).find(row => Number(row.dataset.id) < task.id);
-      destination.insertBefore(item, next ?? null);
-      updateEmptyStates();
-      return item;
-    }
-
-    function updateEmptyStates() {
-      empty.hidden = list.childElementCount > 0;
-      completedEmpty.hidden = completed.childElementCount > 0;
+    function taskList(task) {
+      return task.done ? 'done' : task.list || 'inbox';
     }
 
     function message(text, error = false) {
@@ -183,43 +177,218 @@
       status.toggleAttribute('data-error', error);
     }
 
-    async function initialize() {
-      let db;
+    function action(label, handler) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = label;
+      button.addEventListener('click', handler);
+      return button;
+    }
+
+    function render() {
+      const counts = { inbox: 0, today: 0, planned: 0, done: 0 };
+      const visible = [];
+      for (const task of tasks) {
+        const location = taskList(task);
+        counts[location]++;
+        if (location === activeList) visible.push(taskRow(task));
+      }
+      for (const location of ['inbox', 'today', 'planned']) {
+        document.querySelector('#count-' + location).textContent = counts[location];
+      }
+      for (const tab of tabs) tab.setAttribute('aria-pressed', tab.dataset.list === activeList);
+      list.setAttribute('aria-label', listLabels[activeList]);
+      list.replaceChildren(...visible);
+      empty.hidden = visible.length > 0 || !db;
+    }
+
+    function focusTask(id, selector) {
+      const target = list.querySelector(`[data-id="${id}"] ${selector}`);
+      (target || tabs.find(tab => tab.dataset.list === activeList)).focus();
+    }
+
+    async function changeTask(task, changes, feedback, selector = 'summary') {
+      if (busy) return;
+      busy = true;
       try {
-        db = await openDatabase();
-        const tasks = await transact(db, 'readonly', store => store.getAll());
-        for (const task of tasks) showTask(db, task);
-        updateEmptyStates();
-        save.disabled = false;
+        const updated = await updateTask(db, task.id, changes);
+        tasks = tasks.map(item => item.id === updated.id ? updated : item);
+        render();
+        focusTask(task.id, selector);
+        message(feedback);
       } catch {
-        message('Não foi possível abrir as tarefas neste navegador. Reabra a página para tentar novamente.', true);
+        message('Não foi possível atualizar a tarefa. Tente novamente.', true);
+      } finally {
+        busy = false;
+        updateCaptureButton();
+      }
+    }
+
+    async function deleteTask(task) {
+      if (busy || !window.confirm('Excluir esta tarefa? Esta ação não pode ser desfeita.')) return;
+      busy = true;
+      try {
+        await transact(db, 'readwrite', store => store.delete(task.id));
+        tasks = tasks.filter(item => item.id !== task.id);
+        render();
+        focusTask(task.id, 'summary');
+        message('Tarefa excluída.');
+      } catch {
+        message('Não foi possível excluir a tarefa. Tente novamente.', true);
+      } finally {
+        busy = false;
+        updateCaptureButton();
+      }
+    }
+
+    function taskRow(task) {
+      const row = document.createElement('li');
+      row.dataset.id = task.id;
+      row.classList.toggle('done', Boolean(task.done));
+
+      const toggle = action('', () => changeTask(task, { done: !task.done },
+        task.done ? 'Tarefa reaberta.' : 'Tarefa concluída.', '.toggle'));
+      toggle.className = 'toggle';
+      toggle.setAttribute('aria-label', task.done ? 'Reabrir tarefa' : 'Concluir tarefa');
+      const mark = document.createElement('span');
+      mark.setAttribute('aria-hidden', 'true');
+      mark.textContent = task.done ? '✓' : '';
+      toggle.append(mark);
+
+      const content = document.createElement('div');
+      const description = document.createElement('p');
+      description.className = 'description';
+      description.textContent = task.description;
+      content.append(description);
+      const metadata = document.createElement('div');
+      metadata.className = 'metadata muted';
+      if (task.category) {
+        const label = document.createElement('span');
+        label.textContent = task.category;
+        metadata.append(label);
+      }
+      if (task.priority === 'high') {
+        const priority = document.createElement('span');
+        priority.className = 'high';
+        priority.textContent = 'Prioridade alta';
+        metadata.append(priority);
+      }
+      if (metadata.childElementCount) content.append(metadata);
+
+      const details = document.createElement('details');
+      const summary = document.createElement('summary');
+      summary.textContent = '⋯';
+      summary.setAttribute('aria-label', 'Ações da tarefa');
+      const menu = document.createElement('div');
+      menu.className = 'menu';
+      menu.append(action('Editar', () => openEditor(task)));
+      menu.append(action(task.priority === 'high' ? 'Prioridade normal' : 'Prioridade alta', () =>
+        changeTask(task, { priority: task.priority === 'high' ? 'normal' : 'high' }, 'Prioridade atualizada.')));
+      for (const destination of ['inbox', 'today', 'planned']) {
+        if (taskList(task) === destination) continue;
+        const title = listLabels[destination];
+        menu.append(action('Mover para ' + title, () =>
+          changeTask(task, { list: destination, done: false }, `Tarefa movida para ${title}.`)));
+      }
+      menu.append(action('Excluir', () => deleteTask(task)));
+      details.append(summary, menu);
+      row.append(toggle, content, details);
+      return row;
+    }
+
+    function openEditor(task) {
+      if (busy) return;
+      editingId = task.id;
+      editDescription.value = task.description;
+      editCategory.value = task.category || '';
+      editPriority.value = task.priority || 'normal';
+      dialogError.textContent = '';
+      dialog.showModal();
+      editDescription.focus();
+    }
+
+    cancelEdit.addEventListener('click', () => dialog.close());
+    dialog.addEventListener('cancel', event => {
+      if (busy) event.preventDefault();
+    });
+
+    editForm.addEventListener('submit', async event => {
+      event.preventDefault();
+      if (busy) return;
+      const description = editDescription.value.trim();
+      if (!description) {
+        dialogError.textContent = 'Digite uma descrição antes de salvar.';
+        editDescription.focus();
         return;
       }
 
-      form.addEventListener('submit', async event => {
-        event.preventDefault();
-        const description = input.value.trim();
-        if (!description) {
-          message('Digite uma tarefa antes de salvar.', true);
-          input.focus();
-          return;
-        }
+      busy = true;
+      editDescription.readOnly = editCategory.disabled = editPriority.disabled = cancelEdit.disabled = saveEdit.disabled = true;
+      try {
+        const updated = await updateTask(db, editingId, {
+          description, category: editCategory.value, priority: editPriority.value
+        });
+        tasks = tasks.map(task => task.id === updated.id ? updated : task);
+        dialog.close();
+        render();
+        focusTask(updated.id, 'summary');
+        message('Tarefa atualizada.');
+      } catch {
+        dialogError.textContent = 'Não foi possível salvar a edição. Tente novamente.';
+      } finally {
+        editDescription.readOnly = editCategory.disabled = editPriority.disabled = cancelEdit.disabled = saveEdit.disabled = false;
+        busy = false;
+        updateCaptureButton();
+      }
+    });
 
-        input.readOnly = true;
-        save.disabled = true;
-        const task = { description };
-        try {
-          task.id = await transact(db, 'readwrite', store => store.add(task));
-          showTask(db, task);
-          input.value = '';
-          message('Tarefa salva.');
-        } catch {
-          message('Não foi possível salvar. Seu texto continua no campo. Tente novamente.', true);
-        } finally {
-          input.readOnly = false;
-          save.disabled = false;
-        }
+    for (const tab of tabs) {
+      tab.addEventListener('click', () => {
+        if (busy) return;
+        activeList = tab.dataset.list;
+        render();
       });
+    }
+
+    function updateCaptureButton() {
+      save.disabled = !db || busy || !input.value.trim();
+    }
+
+    input.addEventListener('input', updateCaptureButton);
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const description = input.value.trim();
+      if (!db || busy || !description) return;
+      busy = true;
+      input.readOnly = category.disabled = true;
+      updateCaptureButton();
+      const task = { description, category: category.value };
+      try {
+        task.id = await transact(db, 'readwrite', store => store.add(task));
+        tasks.unshift(task);
+        activeList = 'inbox';
+        input.value = '';
+        category.value = '';
+        render();
+        message('Tarefa salva.');
+      } catch {
+        message('Não foi possível salvar. Seu texto continua no campo. Tente novamente.', true);
+      } finally {
+        input.readOnly = category.disabled = busy = false;
+        updateCaptureButton();
+      }
+    });
+
+    async function initialize() {
+      try {
+        const database = await openDatabase();
+        tasks = (await transact(database, 'readonly', store => store.getAll())).reverse();
+        db = database;
+        render();
+        updateCaptureButton();
+      } catch {
+        message('Não foi possível abrir as tarefas. Reabra a página para tentar novamente.', true);
+      }
     }
 
     initialize();
