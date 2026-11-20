@@ -120,15 +120,10 @@
       <input id="login-email" type="email" autocomplete="email" required>
       <div class="dialog-actions">
         <button id="cancel-login" type="button">Cancelar</button>
-        <button type="submit" class="primary">Enviar acesso</button>
+        <button type="submit" class="primary">Enviar link de acesso</button>
       </div>
     </form>
     <p id="login-status" role="status"></p>
-    <form id="verify-login" hidden>
-      <label for="login-code">Código do e-mail</label>
-      <input id="login-code" inputmode="numeric" autocomplete="one-time-code" required>
-      <div class="dialog-actions"><button type="submit" class="primary">Confirmar código</button></div>
-    </form>
   </dialog>
 
   <script>
@@ -160,7 +155,6 @@
     const loginDialog = document.querySelector('#login-dialog');
     const loginEmail = document.querySelector('#login-email');
     const loginStatus = document.querySelector('#login-status');
-    const loginCodeForm = document.querySelector('#verify-login');
     const cancelLogin = document.querySelector('#cancel-login');
     const sendAccess = document.querySelector('#request-login button[type="submit"]');
 
@@ -171,7 +165,6 @@
     let localWorkspace;
     let accountWorkspace;
     let accountId = null;
-    let requestedEmail;
     let refreshing = false;
     let workspaceReady = false;
     let tasks = [];
@@ -627,8 +620,6 @@
 
     loginButton.addEventListener('click', () => {
       loginStatus.textContent = '';
-      loginCodeForm.hidden = true;
-      loginCodeForm.reset();
       requestedEmail = undefined;
       loginDialog.showModal();
     });
@@ -648,34 +639,11 @@
           options: { shouldCreateUser: signupTest, emailRedirectTo: location.origin + location.pathname }
         });
         if (error) throw error;
-        requestedEmail = email;
-        loginStatus.textContent = 'Confira seu e-mail. Abra o link recebido neste navegador ou informe o código abaixo.';
-        loginCodeForm.hidden = false;
+        loginStatus.textContent = 'Confira seu e-mail e abra o link recebido no navegador em que quer usar o Captura.';
       } catch {
         loginStatus.textContent = signupTest
           ? 'Não foi possível enviar o acesso. Confira o e-mail e tente novamente.'
           : 'Não foi possível enviar o acesso. Confira se este e-mail foi convidado e tente novamente.';
-      } finally {
-        button.disabled = false;
-      }
-    });
-
-    loginCodeForm.addEventListener('submit', async event => {
-      event.preventDefault();
-      const button = event.submitter;
-      button.disabled = true;
-      try {
-        const { data, error } = await cloud.auth.verifyOtp({
-          email: requestedEmail,
-          token: document.querySelector('#login-code').value.trim(),
-          type: 'email'
-        });
-        if (error) throw error;
-        await applySession(data.session);
-        loginCodeForm.reset();
-        loginCodeForm.hidden = true;
-      } catch {
-        loginStatus.textContent = 'Código inválido ou expirado. Confira o e-mail ou solicite outro código.';
       } finally {
         button.disabled = false;
       }
