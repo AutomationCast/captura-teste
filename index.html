@@ -801,6 +801,11 @@
         }
         return;
       }
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistration()
+          .then(registration => registration?.update())
+          .catch(() => {});
+      }
       sendAccess.disabled = true;
       showLogin();
       loginStatus.textContent = 'Preparando o acesso…';

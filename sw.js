@@ -1,8 +1,11 @@
+self.addEventListener('install', event => event.waitUntil(self.skipWaiting()));
+self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
+
 self.addEventListener('push', event => {
-  const taskId = event.data?.json().taskId;
+  const { taskId, description } = event.data?.json() ?? {};
   if (!/^[0-9a-f-]{36}$/i.test(taskId ?? '')) return;
   event.waitUntil(self.registration.showNotification('Captura', {
-    body: 'Você tem um lembrete.',
+    body: typeof description === 'string' && description.trim() ? description : 'Você tem um lembrete.',
     tag: 'captura-' + taskId,
     data: { taskId }
   }));
