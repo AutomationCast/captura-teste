@@ -602,6 +602,7 @@
         document.querySelector('label[for="login-email"]').textContent = 'Seu e-mail';
       }
       loginButton.hidden = Boolean(accountId);
+      if (signupTest && !accountId) loginButton.click();
       cloud.auth.onAuthStateChange((event, session) => {
         if (event !== 'TOKEN_REFRESHED') {
           void applySession(session);
