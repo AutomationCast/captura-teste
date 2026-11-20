@@ -175,9 +175,9 @@
       for (const value of categories) select.add(new Option(value || 'Sem categoria', value));
     }
 
-    function openDatabase() {
+    function openDatabase(name) {
       return new Promise((resolve, reject) => {
-        const request = indexedDB.open('captura', 1);
+        const request = indexedDB.open(name, 1);
         request.onupgradeneeded = () => {
           request.result.createObjectStore('tasks', { keyPath: 'id', autoIncrement: true });
         };
@@ -673,15 +673,18 @@
       }
     });
 
-    async function getLocalWorkspace() {
-      if (localWorkspace) return localWorkspace;
-      const database = await openDatabase();
-      localWorkspace = {
+    async function createLocalWorkspace(name) {
+      const database = await openDatabase(name);
+      return {
         read: async () => (await transact(database, 'readonly', store => store.getAll())).reverse(),
         add: task => transact(database, 'readwrite', store => store.add(task)),
         update: (id, changes) => updateTask(database, id, changes),
         remove: id => transact(database, 'readwrite', store => store.delete(id))
       };
+    }
+
+    async function getLocalWorkspace() {
+      if (!localWorkspace) localWorkspace = await createLocalWorkspace('captura');
       return localWorkspace;
     }
 
@@ -705,6 +708,16 @@
     });
 
     async function initialize() {
+      if (new URLSearchParams(location.search).get('modo') === 'teste-local') {
+        appMain.hidden = false;
+        try {
+          const guest = await createLocalWorkspace('captura-teste-local');
+          await showWorkspace(guest, 'Teste local · tarefas salvas só neste navegador');
+        } catch {
+          message('Não foi possível abrir o teste local. Atualize a página para tentar novamente.', true);
+        }
+        return;
+      }
       sendAccess.disabled = true;
       showLogin();
       loginStatus.textContent = 'Preparando o acesso…';
