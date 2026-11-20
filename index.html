@@ -57,7 +57,7 @@
   </style>
 </head>
 <body>
-  <main>
+  <main hidden>
     <h1>Captura</h1>
     <form id="capture">
       <label for="task">O que você precisa lembrar?</label>
@@ -152,6 +152,7 @@
     const saveEdit = document.querySelector('#save-edit');
     const dialogError = document.querySelector('#dialog-error');
 
+    const appMain = document.querySelector('main');
     const accountMode = document.querySelector('#account-mode');
     const loginButton = document.querySelector('#login-button');
     const switchButton = document.querySelector('#switch-workspace');
@@ -160,8 +161,11 @@
     const loginEmail = document.querySelector('#login-email');
     const loginStatus = document.querySelector('#login-status');
     const loginCodeForm = document.querySelector('#verify-login');
+    const cancelLogin = document.querySelector('#cancel-login');
+    const sendAccess = document.querySelector('#request-login button[type="submit"]');
 
     const signupTest = new URLSearchParams(location.search).get('cadastro') === 'teste';
+    const accountOnly = signupTest || new URLSearchParams(location.hash.slice(1)).has('access_token');
     let cloud;
     let workspace;
     let localWorkspace;
@@ -546,9 +550,22 @@
       accountWorkspace = user ? accountStore(user.id) : null;
       loginButton.hidden = Boolean(user);
       logoutButton.hidden = !user;
-      switchButton.hidden = !user;
+      switchButton.hidden = accountOnly || !user;
       switchButton.textContent = 'Ver tarefas deste navegador';
+      if (accountOnly && !user) {
+        appMain.hidden = true;
+        workspace = null;
+        workspaceReady = false;
+        tasks = [];
+        input.value = '';
+        category.value = '';
+        render();
+        updateCaptureButton();
+        loginButton.click();
+        return;
+      }
       if (user && loginDialog.open) loginDialog.close();
+      appMain.hidden = false;
       await showWorkspace(accountWorkspace || localWorkspace, user ? 'Tarefas da conta · ' + user.email : 'Tarefas deste navegador');
     }
 
@@ -596,13 +613,9 @@
       const { data, error } = await cloud.auth.getSession();
       if (error) message('Não foi possível restaurar a sessão. Entre novamente.', true);
       await applySession(data.session);
-      if (signupTest) {
-        loginButton.textContent = 'Criar conta ou entrar';
-        document.querySelector('#login-title').textContent = 'Criar conta ou entrar';
-        document.querySelector('label[for="login-email"]').textContent = 'Seu e-mail';
-      }
       loginButton.hidden = Boolean(accountId);
-      if (signupTest && !accountId) loginButton.click();
+      sendAccess.disabled = false;
+      if (accountOnly && !accountId) loginStatus.textContent = '';
       cloud.auth.onAuthStateChange((event, session) => {
         if (event !== 'TOKEN_REFRESHED') {
           void applySession(session);
@@ -619,7 +632,10 @@
       requestedEmail = undefined;
       loginDialog.showModal();
     });
-    document.querySelector('#cancel-login').addEventListener('click', () => loginDialog.close());
+    cancelLogin.addEventListener('click', () => loginDialog.close());
+    loginDialog.addEventListener('cancel', event => {
+      if (accountOnly && !accountId) event.preventDefault();
+    });
 
     document.querySelector('#request-login').addEventListener('submit', async event => {
       event.preventDefault();
@@ -688,6 +704,24 @@
     });
 
     async function initialize() {
+      if (accountOnly) {
+        if (signupTest) {
+          loginButton.textContent = 'Criar conta ou entrar';
+          document.querySelector('#login-title').textContent = 'Criar conta ou entrar';
+          document.querySelector('label[for="login-email"]').textContent = 'Seu e-mail';
+        }
+        cancelLogin.hidden = true;
+        sendAccess.disabled = true;
+        loginButton.click();
+        loginStatus.textContent = 'Preparando o acesso…';
+        try {
+          await initializeCloud();
+        } catch {
+          loginStatus.textContent = 'Não foi possível conectar. Atualize a página para tentar novamente.';
+        }
+        return;
+      }
+      appMain.hidden = false;
       try {
         const database = await openDatabase();
         localWorkspace = {
