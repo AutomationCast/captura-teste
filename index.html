@@ -61,7 +61,8 @@
     <h1>Captura</h1>
     <form id="capture">
       <label for="task">O que você precisa lembrar?</label>
-      <textarea id="task" placeholder="Ex.: Ligar para o dentista ou comprar café" maxlength="2000" required aria-describedby="dictation"></textarea>
+      <textarea id="task" placeholder="Ex.: Ligar para o dentista ou comprar café" required aria-describedby="capture-length dictation"></textarea>
+      <p id="capture-length" class="muted">0 de 250 caracteres</p>
       <div class="capture-actions">
         <div><label for="category">Categoria opcional</label><select id="category"></select></div>
         <button id="save" class="primary" type="submit" disabled>Capturar</button>
@@ -100,7 +101,8 @@
     <form id="edit-task">
       <h2 id="dialog-title">Editar tarefa</h2>
       <label for="edit-description">Descrição</label>
-      <textarea id="edit-description" maxlength="2000" required></textarea>
+      <textarea id="edit-description" aria-describedby="edit-length" required></textarea>
+      <p id="edit-length" class="muted">Até 250 caracteres se alterar a descrição.</p>
       <label for="edit-category">Categoria</label>
       <select id="edit-category"></select>
       <label for="edit-priority">Prioridade</label>
@@ -169,7 +171,9 @@
     let workspaceReady = false;
     let tasks = [];
     let activeList = 'inbox';
+    const descriptionLimit = 250;
     let editingId = null;
+    let originalDescription = '';
     let busy = false;
 
     for (const select of [category, editCategory]) {
@@ -360,7 +364,8 @@
     function openEditor(task) {
       if (busy) return;
       editingId = task.id;
-      editDescription.value = task.description;
+      originalDescription = task.description;
+      editDescription.value = originalDescription;
       editCategory.value = task.category || '';
       editPriority.value = task.priority || 'normal';
       dialogError.textContent = '';
@@ -376,13 +381,19 @@
     editForm.addEventListener('submit', async event => {
       event.preventDefault();
       if (busy) return;
-      const description = editDescription.value.trim();
+      const description = editDescription.value === originalDescription
+        ? originalDescription : editDescription.value.trim();
       if (!description) {
         dialogError.textContent = 'Digite uma descrição antes de salvar.';
         editDescription.focus();
         return;
       }
 
+      if (description !== originalDescription && Array.from(description).length > descriptionLimit) {
+        dialogError.textContent = 'A descrição pode ter até 250 caracteres.';
+        editDescription.focus();
+        return;
+      }
       busy = true;
       editDescription.readOnly = editCategory.disabled = editPriority.disabled = cancelEdit.disabled = saveEdit.disabled = true;
       try {
@@ -414,14 +425,20 @@
     }
 
     function updateCaptureButton() {
-      save.disabled = !workspaceReady || busy || !input.value.trim();
+      const length = Array.from(input.value.trim()).length;
+      const lengthHint = document.querySelector('#capture-length');
+      lengthHint.textContent = length > descriptionLimit
+        ? length + ' caracteres. Reduza para até 250.'
+        : length + ' de 250 caracteres';
+      lengthHint.classList.toggle('high', length > descriptionLimit);
+      save.disabled = !workspaceReady || busy || !length || length > descriptionLimit;
     }
 
     input.addEventListener('input', updateCaptureButton);
     form.addEventListener('submit', async event => {
       event.preventDefault();
       const description = input.value.trim();
-      if (!workspaceReady || busy || !description) return;
+      if (!workspaceReady || busy || !description || Array.from(description).length > descriptionLimit) return;
       busy = true;
       input.readOnly = category.disabled = true;
       updateCaptureButton();
@@ -436,8 +453,12 @@
         category.value = '';
         render();
         message('Tarefa salva.');
-      } catch {
-        message('Não foi possível salvar. Seu texto continua no campo. Tente novamente.', true);
+      } catch (error) {
+        if (error?.code === 'P1001') {
+          message('Sua conta já atingiu o limite de 100 tarefas, incluindo as concluídas. Exclua uma para salvar outra. Seu texto continua no campo.', true);
+        } else {
+          message('Não foi possível salvar. Seu texto continua no campo. Tente novamente.', true);
+        }
       } finally {
         input.readOnly = category.disabled = busy = false;
         updateCaptureButton();
