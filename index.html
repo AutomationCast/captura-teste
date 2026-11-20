@@ -708,7 +708,8 @@
     });
 
     async function initialize() {
-      if (new URLSearchParams(location.search).get('modo') === 'teste-local') {
+      const testPath = location.pathname.endsWith('/teste/') || location.pathname.endsWith('/teste/index.html');
+      if (testPath || new URLSearchParams(location.search).get('modo') === 'teste-local') {
         appMain.hidden = false;
         try {
           const guest = await createLocalWorkspace('captura-teste-local');
