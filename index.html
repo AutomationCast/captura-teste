@@ -29,6 +29,9 @@
     .counts { display: grid; grid-template-columns: repeat(3, 1fr); text-align: center; gap: .35rem; padding: .65rem 0 1.15rem; }
     .counts strong { display: block; font-size: 1.3rem; }
     footer { margin-top: 1.25rem; }
+    .account-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .5rem; }
+    #login-dialog input { box-sizing: border-box; width: 100%; min-height: 2.75rem; padding: .5rem; font: inherit; }
+    #login-status { margin-top: .5rem; }
     nav { display: flex; flex-wrap: wrap; gap: .3rem; margin-bottom: .65rem; }
     nav button { padding-inline: clamp(.5rem, 2vw, .8rem); font-size: .875rem; }
     ul { list-style: none; margin: 0; padding: 0; }
@@ -82,7 +85,15 @@
       <p id="empty" class="muted" hidden>Nenhuma tarefa nesta lista.</p>
       <ul id="tasks" aria-label="Entrada"></ul>
     </section>
-    <footer><button id="export-backup" type="button" disabled>Exportar backup</button></footer>
+    <footer>
+      <p id="account-mode" class="muted">Tarefas deste navegador</p>
+      <div class="account-actions">
+        <button id="export-backup" type="button" disabled>Exportar backup</button>
+        <button id="login-button" type="button" hidden>Entrar com e-mail</button>
+        <button id="switch-workspace" type="button" hidden>Ver tarefas deste navegador</button>
+        <button id="logout-button" type="button" hidden>Sair da conta</button>
+      </div>
+    </footer>
   </main>
 
   <dialog id="task-dialog" aria-labelledby="dialog-title">
@@ -99,6 +110,24 @@
         <button id="cancel-edit" type="button">Cancelar</button>
         <button id="save-edit" type="submit" class="primary">Salvar edição</button>
       </div>
+    </form>
+  </dialog>
+
+  <dialog id="login-dialog" aria-labelledby="login-title">
+    <h2 id="login-title">Entrar no Captura</h2>
+    <form id="request-login">
+      <label for="login-email">E-mail convidado</label>
+      <input id="login-email" type="email" autocomplete="email" required>
+      <div class="dialog-actions">
+        <button id="cancel-login" type="button">Cancelar</button>
+        <button type="submit" class="primary">Enviar acesso</button>
+      </div>
+    </form>
+    <p id="login-status" role="status"></p>
+    <form id="verify-login" hidden>
+      <label for="login-code">Código do e-mail</label>
+      <input id="login-code" inputmode="numeric" autocomplete="one-time-code" required>
+      <div class="dialog-actions"><button type="submit" class="primary">Confirmar código</button></div>
     </form>
   </dialog>
 
@@ -123,7 +152,23 @@
     const saveEdit = document.querySelector('#save-edit');
     const dialogError = document.querySelector('#dialog-error');
 
-    let db;
+    const accountMode = document.querySelector('#account-mode');
+    const loginButton = document.querySelector('#login-button');
+    const switchButton = document.querySelector('#switch-workspace');
+    const logoutButton = document.querySelector('#logout-button');
+    const loginDialog = document.querySelector('#login-dialog');
+    const loginEmail = document.querySelector('#login-email');
+    const loginStatus = document.querySelector('#login-status');
+    const loginCodeForm = document.querySelector('#verify-login');
+
+    let cloud;
+    let workspace;
+    let localWorkspace;
+    let accountWorkspace;
+    let accountId = null;
+    let requestedEmail;
+    let refreshing = false;
+    let workspaceReady = false;
     let tasks = [];
     let activeList = 'inbox';
     let editingId = null;
@@ -204,7 +249,7 @@
       for (const tab of tabs) tab.setAttribute('aria-pressed', tab.dataset.list === activeList);
       list.setAttribute('aria-label', listLabels[activeList]);
       list.replaceChildren(...visible);
-      empty.hidden = visible.length > 0 || !db;
+      empty.hidden = visible.length > 0 || !workspaceReady;
     }
 
     function focusTask(id, selector) {
@@ -216,7 +261,9 @@
       if (busy) return;
       busy = true;
       try {
-        const updated = await updateTask(db, task.id, changes);
+        const current = workspace;
+        const updated = await current.update(task.id, changes);
+        if (workspace !== current) return;
         tasks = tasks.map(item => item.id === updated.id ? updated : item);
         render();
         focusTask(task.id, selector);
@@ -233,7 +280,9 @@
       if (busy || !window.confirm('Excluir esta tarefa? Esta ação não pode ser desfeita.')) return;
       busy = true;
       try {
-        await transact(db, 'readwrite', store => store.delete(task.id));
+        const current = workspace;
+        await current.remove(task.id);
+        if (workspace !== current) return;
         tasks = tasks.filter(item => item.id !== task.id);
         render();
         focusTask(task.id, 'summary');
@@ -339,9 +388,11 @@
       busy = true;
       editDescription.readOnly = editCategory.disabled = editPriority.disabled = cancelEdit.disabled = saveEdit.disabled = true;
       try {
-        const updated = await updateTask(db, editingId, {
+        const current = workspace;
+        const updated = await current.update(editingId, {
           description, category: editCategory.value, priority: editPriority.value
         });
+        if (workspace !== current) return;
         tasks = tasks.map(task => task.id === updated.id ? updated : task);
         dialog.close();
         render();
@@ -365,21 +416,23 @@
     }
 
     function updateCaptureButton() {
-      save.disabled = !db || busy || !input.value.trim();
+      save.disabled = !workspaceReady || busy || !input.value.trim();
     }
 
     input.addEventListener('input', updateCaptureButton);
     form.addEventListener('submit', async event => {
       event.preventDefault();
       const description = input.value.trim();
-      if (!db || busy || !description) return;
+      if (!workspaceReady || busy || !description) return;
       busy = true;
       input.readOnly = category.disabled = true;
       updateCaptureButton();
       const task = { description, category: category.value };
       try {
-        task.id = await transact(db, 'readwrite', store => store.add(task));
-        tasks.unshift(task);
+        const current = workspace;
+        task.id = await current.add(task);
+        if (workspace !== current) return;
+        tasks = [task, ...tasks];
         activeList = 'inbox';
         input.value = '';
         category.value = '';
@@ -396,7 +449,7 @@
     exportButton.addEventListener('click', async () => {
       exportButton.disabled = true;
       try {
-        const records = await transact(db, 'readonly', store => store.getAll());
+        const records = await workspace.read();
         const date = new Date();
         const backup = {
           version: 1,
@@ -427,16 +480,218 @@
       }
     });
 
+    function accountStore(userId) {
+      const columns = 'id,description,category,priority,list,done';
+      const table = () => cloud.from('tasks');
+      async function result(request) {
+        const { data, error } = await request;
+        if (error) throw error;
+        return data;
+      }
+      return {
+        async read() {
+          const records = [];
+          for (let offset = 0; ; offset += 500) {
+            const page = await result(table().select(columns).eq('user_id', userId)
+              .order('created_at', { ascending: false }).order('id').range(offset, offset + 499));
+            records.push(...page);
+            if (page.length < 500) return records;
+          }
+        },
+        add: async task => (await result(table().insert({
+          ...task, category: task.category || null, user_id: userId
+        }).select('id').single())).id,
+        update: (id, changes) => result(table().update({
+          ...changes, ...('category' in changes ? { category: changes.category || null } : {})
+        }).eq('user_id', userId).eq('id', id).select(columns).single()),
+        remove: id => result(table().delete().eq('user_id', userId).eq('id', id).select('id').single())
+      };
+    }
+
+    async function showWorkspace(nextStore, label) {
+      const requested = nextStore;
+      workspace = requested;
+      workspaceReady = false;
+      exportButton.disabled = true;
+      tasks = [];
+      activeList = 'inbox';
+      render();
+      updateCaptureButton();
+      accountMode.textContent = label;
+      try {
+        const records = await requested.read();
+        if (workspace !== requested) return;
+        tasks = records;
+        workspaceReady = true;
+        render();
+        message('');
+      } catch {
+        if (workspace !== requested) return;
+        message('Não foi possível carregar as tarefas. Tente atualizar a página.', true);
+      } finally {
+        if (workspace === requested) {
+          exportButton.disabled = !workspaceReady;
+          updateCaptureButton();
+        }
+      }
+    }
+
+    async function applySession(session) {
+      const user = session?.user;
+      if (!user && !accountId) return;
+      if (user?.id === accountId) return;
+      if (dialog.open) dialog.close();
+      accountId = user?.id || null;
+      accountWorkspace = user ? accountStore(user.id) : null;
+      loginButton.hidden = Boolean(user);
+      logoutButton.hidden = !user;
+      switchButton.hidden = !user;
+      switchButton.textContent = 'Ver tarefas deste navegador';
+      if (user && loginDialog.open) loginDialog.close();
+      await showWorkspace(accountWorkspace || localWorkspace, user ? 'Tarefas da conta · ' + user.email : 'Tarefas deste navegador');
+    }
+
+    async function refreshAccount() {
+      if (busy || refreshing || !accountWorkspace || workspace !== accountWorkspace ||
+          document.hidden || dialog.open || list.querySelector('details[open]')) return;
+      const current = workspace;
+      const previous = tasks;
+      refreshing = true;
+      try {
+        const records = await current.read();
+        if (workspace !== current || tasks !== previous || busy || dialog.open || list.querySelector('details[open]')) return;
+        const changed = JSON.stringify(records) !== JSON.stringify(tasks);
+        if (changed && list.contains(document.activeElement)) return;
+        if (changed || !workspaceReady) {
+          tasks = records;
+          workspaceReady = true;
+          exportButton.disabled = false;
+          updateCaptureButton();
+          render();
+          message('');
+        }
+      } catch {
+        // Keep the last successfully loaded view during temporary connection failures.
+      } finally {
+        refreshing = false;
+      }
+    }
+
+    async function initializeCloud() {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.2/dist/umd/supabase.js';
+      script.integrity = 'sha384-A97u3Qnt9GZHURO9YJZRe7VQgGUeFzcv6I1oIGnUTxQrCxnpQMwR0/G8F2zt9abZ';
+      script.crossOrigin = 'anonymous';
+      await new Promise((resolve, reject) => {
+        script.onload = resolve;
+        script.onerror = reject;
+        document.head.append(script);
+      });
+      cloud = window.supabase.createClient(
+        'https://yxiloykwsrnzheeehxkt.supabase.co',
+        'sb_publishable_Yq_VRwQdBl3kR3ZFIgtMHQ_NNB97Hih',
+        { auth: { persistSession: true, autoRefreshToken: true } }
+      );
+      const { data, error } = await cloud.auth.getSession();
+      if (error) message('Não foi possível restaurar a sessão. Entre novamente.', true);
+      await applySession(data.session);
+      loginButton.hidden = Boolean(accountId);
+      cloud.auth.onAuthStateChange((event, session) => {
+        if (event !== 'TOKEN_REFRESHED') {
+          void applySession(session);
+        }
+      });
+      window.addEventListener('focus', refreshAccount);
+      setInterval(refreshAccount, 15000);
+    }
+
+    loginButton.addEventListener('click', () => {
+      loginStatus.textContent = '';
+      loginCodeForm.hidden = true;
+      loginCodeForm.reset();
+      requestedEmail = undefined;
+      loginDialog.showModal();
+    });
+    document.querySelector('#cancel-login').addEventListener('click', () => loginDialog.close());
+
+    document.querySelector('#request-login').addEventListener('submit', async event => {
+      event.preventDefault();
+      const button = event.submitter;
+      button.disabled = true;
+      try {
+        const email = loginEmail.value.trim();
+        const { error } = await cloud.auth.signInWithOtp({
+          email,
+          options: { shouldCreateUser: false, emailRedirectTo: location.origin + location.pathname }
+        });
+        if (error) throw error;
+        requestedEmail = email;
+        loginStatus.textContent = 'Confira seu e-mail. Abra o link recebido neste navegador ou informe o código abaixo.';
+        loginCodeForm.hidden = false;
+      } catch {
+        loginStatus.textContent = 'Não foi possível enviar o acesso. Confira se este e-mail foi convidado e tente novamente.';
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    loginCodeForm.addEventListener('submit', async event => {
+      event.preventDefault();
+      const button = event.submitter;
+      button.disabled = true;
+      try {
+        const { data, error } = await cloud.auth.verifyOtp({
+          email: requestedEmail,
+          token: document.querySelector('#login-code').value.trim(),
+          type: 'email'
+        });
+        if (error) throw error;
+        await applySession(data.session);
+        loginCodeForm.reset();
+        loginCodeForm.hidden = true;
+      } catch {
+        loginStatus.textContent = 'Código inválido ou expirado. Confira o e-mail ou solicite outro código.';
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    logoutButton.addEventListener('click', async () => {
+      if (busy) return;
+      logoutButton.disabled = true;
+      try {
+        const { error } = await cloud.auth.signOut({ scope: 'local' });
+        if (error) throw error;
+        await applySession(null);
+      } catch {
+        message('Não foi possível sair da conta. Tente novamente.', true);
+      } finally {
+        logoutButton.disabled = false;
+      }
+    });
+
+    switchButton.addEventListener('click', async () => {
+      if (busy || !accountWorkspace) return;
+      const showLocal = workspace === accountWorkspace;
+      switchButton.textContent = showLocal ? 'Ver tarefas da conta' : 'Ver tarefas deste navegador';
+      await showWorkspace(showLocal ? localWorkspace : accountWorkspace,
+        showLocal ? 'Tarefas deste navegador' : 'Tarefas da conta');
+    });
+
     async function initialize() {
       try {
         const database = await openDatabase();
-        tasks = (await transact(database, 'readonly', store => store.getAll())).reverse();
-        db = database;
-        exportButton.disabled = false;
-        render();
-        updateCaptureButton();
+        localWorkspace = {
+          read: async () => (await transact(database, 'readonly', store => store.getAll())).reverse(),
+          add: task => transact(database, 'readwrite', store => store.add(task)),
+          update: (id, changes) => updateTask(database, id, changes),
+          remove: id => transact(database, 'readwrite', store => store.delete(id))
+        };
+        await showWorkspace(localWorkspace, 'Tarefas deste navegador');
+        await initializeCloud();
       } catch {
-        message('Não foi possível abrir as tarefas. Reabra a página para tentar novamente.', true);
+        message(workspaceReady ? 'Login indisponível no momento. A captura local continua disponível.' :
+          'Não foi possível abrir as tarefas. Reabra a página para tentar novamente.', true);
       }
     }
 
