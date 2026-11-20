@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Captura</title>
+  <style>
+    :root { color-scheme: light; font: 100%/1.5 system-ui, sans-serif; color: #162622; background: #f0f5f2; }
+    body { margin: 0; }
+    main { max-width: 36rem; margin: auto; padding: clamp(1rem, 5vw, 3rem); }
+    h1 { margin: 0 0 1rem; font-size: clamp(2rem, 8vw, 3rem); letter-spacing: -.04em; }
+    h2 { margin: 0 0 .75rem; font-size: 1.25rem; }
+    form, section { background: #fff; border: 1px solid #cfddd5; border-radius: 1rem; padding: 1rem; }
+    label { display: block; font-weight: 650; margin-bottom: .5rem; }
+    textarea { box-sizing: border-box; width: 100%; min-height: 6rem; padding: .75rem; border: 1px solid #627a6d; border-radius: .5rem; font: inherit; resize: vertical; }
+    button { width: 100%; min-height: 3rem; margin-top: .5rem; border: 0; border-radius: .5rem; background: #146348; color: white; font: inherit; font-weight: 650; }
+    button:disabled { opacity: .6; }
+    :focus-visible { outline: 3px solid #146348; outline-offset: 3px; }
+    #status { min-height: 1.5em; margin: .5rem 0; }
+    #status[data-error] { color: #9a2424; }
+    #empty { margin: 0; color: #4d6359; }
+    ul { list-style: none; margin: 0; padding: 0; }
+    li { padding: .75rem 0; border-top: 1px solid #dbe5df; white-space: pre-wrap; overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Captura</h1>
+    <form id="capture">
+      <label for="task">Nova tarefa</label>
+      <textarea id="task" placeholder="O que você quer lembrar?" required maxlength="2000"></textarea>
+      <button id="save" type="submit" disabled>Salvar tarefa</button>
+    </form>
+    <p id="status" role="status"></p>
+    <section aria-labelledby="inbox">
+      <h2 id="inbox">Entrada</h2>
+      <p id="empty" hidden>Nenhuma tarefa registrada.</p>
+      <ul id="tasks"></ul>
+    </section>
+  </main>
+  <script>
+    const form = document.querySelector('#capture');
+    const input = document.querySelector('#task');
+    const save = document.querySelector('#save');
+    const status = document.querySelector('#status');
+    const list = document.querySelector('#tasks');
+    const empty = document.querySelector('#empty');
+
+    function openDatabase() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open('captura', 1);
+        request.onupgradeneeded = () => {
+          request.result.createObjectStore('tasks', { keyPath: 'id', autoIncrement: true });
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+        request.onblocked = () => reject(new Error('Banco ocupado'));
+      });
+    }
+
+    function transact(db, mode, operation) {
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction('tasks', mode);
+        const request = operation(transaction.objectStore('tasks'));
+        transaction.oncomplete = () => resolve(request.result);
+        transaction.onabort = () => reject(transaction.error);
+      });
+    }
+
+    function taskRow(task) {
+      const item = document.createElement('li');
+      item.textContent = task.description;
+      return item;
+    }
+
+    function message(text, error = false) {
+      status.textContent = text;
+      status.toggleAttribute('data-error', error);
+    }
+
+    async function initialize() {
+      let db;
+      try {
+        db = await openDatabase();
+        const tasks = await transact(db, 'readonly', store => store.getAll());
+        list.replaceChildren(...tasks.reverse().map(taskRow));
+        empty.hidden = tasks.length > 0;
+        save.disabled = false;
+      } catch {
+        message('Não foi possível abrir as tarefas neste navegador. Reabra a página para tentar novamente.', true);
+        return;
+      }
+
+      form.addEventListener('submit', async event => {
+        event.preventDefault();
+        const description = input.value.trim();
+        if (!description) {
+          message('Digite uma tarefa antes de salvar.', true);
+          input.focus();
+          return;
+        }
+
+        input.readOnly = true;
+        save.disabled = true;
+        const task = { description };
+        try {
+          await transact(db, 'readwrite', store => store.add(task));
+          list.prepend(taskRow(task));
+          empty.hidden = true;
+          input.value = '';
+          message('Tarefa salva.');
+        } catch {
+          message('Não foi possível salvar. Seu texto continua no campo. Tente novamente.', true);
+        } finally {
+          input.readOnly = false;
+          save.disabled = false;
+        }
+      });
+    }
+
+    initialize();
+  </script>
+</body>
+</html>
