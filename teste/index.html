@@ -4,6 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Captura</title>
+  <link rel="manifest" href="/captura-teste/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/captura-teste/captura-180.png">
+  <meta name="theme-color" content="#174732">
   <style>
     :root { color-scheme: light; font: 100%/1.5 system-ui, sans-serif; color: #183127; background: #f0f6f1; }
     body { margin: 0; }
@@ -562,6 +565,7 @@
       const requested = nextStore;
       workspace = requested;
       enableReminders.hidden = requested !== accountWorkspace;
+      if (!enableReminders.hidden) void prepareReminders().catch(() => {});
       workspaceReady = false;
       exportButton.disabled = true;
       tasks = [];
@@ -715,31 +719,75 @@
       return navigator.serviceWorker.register('./sw.js?v=2', { updateViaCache: 'none' });
     }
 
+    const appleMobile = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const installedApp = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+    const supportsPush = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+    let reminderSetup;
+    let reminderOptions;
+
+    function prepareReminders() {
+      if ((appleMobile && !installedApp) || !supportsPush) return Promise.resolve();
+      if (reminderSetup) return reminderSetup;
+
+      enableReminders.disabled = true;
+      reminderSetup = (async () => {
+        try {
+          const { data, error } = await cloud.from('push_settings').select('vapid_public_key').single();
+          if (error) throw error;
+          await registerReminderWorker();
+          const registration = await navigator.serviceWorker.ready;
+          const subscription = await registration.pushManager.getSubscription();
+          const key = data.vapid_public_key.replace(/-/g, '+').replace(/_/g, '/');
+          const applicationServerKey = Uint8Array.from(atob(key.padEnd(Math.ceil(key.length / 4) * 4, '=')),
+            char => char.charCodeAt(0));
+          reminderOptions = { registration, subscription, applicationServerKey };
+        } catch (error) {
+          reminderSetup = null;
+          throw error;
+        } finally {
+          enableReminders.disabled = false;
+        }
+      })();
+      return reminderSetup;
+    }
+
     enableReminders.addEventListener('click', async () => {
       if (!accountId || workspace !== accountWorkspace) return;
-      if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
-        message('Este navegador não oferece lembretes. Para o teste, use o Chrome no Android.', true);
+      if (appleMobile && !installedApp) {
+        message('No iPhone ou iPad, toque em Compartilhar → Adicionar à Tela de Início. Depois abra o Captura pelo ícone.', true);
         return;
       }
+      if (!supportsPush) {
+        message('Este navegador não oferece lembretes. No iPhone ou iPad, use iOS 16.4 ou posterior.', true);
+        return;
+      }
+      if (!reminderOptions) {
+        try {
+          await prepareReminders();
+          message('Preparação concluída. Toque em Ativar lembretes neste aparelho novamente.');
+        } catch {
+          message('Não foi possível preparar os lembretes. Tente novamente.', true);
+        }
+        return;
+      }
+
       const userId = accountId;
+      const { registration, subscription: existing, applicationServerKey } = reminderOptions;
       enableReminders.disabled = true;
       try {
-        if (await Notification.requestPermission() !== 'granted') {
-          message('Permita as notificações do Captura nas configurações do navegador.', true);
-          return;
-        }
-        const { data, error } = await cloud.from('push_settings').select('vapid_public_key').single();
-        if (error) throw error;
-        await registerReminderWorker();
-        const registration = await navigator.serviceWorker.ready;
-        const subscription = await registration.pushManager.getSubscription()
-          || await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: data.vapid_public_key });
+        // Safari requires a direct tap to request the push subscription.
+        const subscription = existing ||
+          await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey });
+        reminderOptions.subscription = subscription;
         if (accountId !== userId) return;
         const saved = await cloud.from('push_devices').upsert({ user_id: userId, subscription: subscription.toJSON() });
         if (saved.error) throw saved.error;
         message('Lembretes ativados neste aparelho.');
       } catch {
-        message('Não foi possível ativar os lembretes. Use o Chrome no Android e tente novamente.', true);
+        message(Notification.permission === 'denied'
+          ? 'Permita as notificações do Captura nas configurações do aparelho.'
+          : 'Não foi possível ativar os lembretes neste aparelho. Tente novamente.', true);
       } finally {
         enableReminders.disabled = false;
       }
