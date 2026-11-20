@@ -10,7 +10,7 @@
     main { max-width: 36rem; margin: auto; padding: clamp(1rem, 5vw, 3rem); }
     h1 { margin: 0 0 1rem; font-size: clamp(2rem, 8vw, 3rem); letter-spacing: -.04em; }
     h2 { margin: 0 0 .75rem; font-size: 1.25rem; }
-    form, section { background: #fff; border: 1px solid #cfddd5; border-radius: 1rem; padding: 1rem; }
+    #capture, section { background: #fff; border: 1px solid #cfddd5; border-radius: 1rem; padding: 1rem; }
     label { display: block; font-weight: 650; margin-bottom: .5rem; }
     textarea { box-sizing: border-box; width: 100%; min-height: 6rem; padding: .75rem; border: 1px solid #627a6d; border-radius: .5rem; font: inherit; resize: vertical; }
     button { width: 100%; min-height: 3rem; margin-top: .5rem; border: 0; border-radius: .5rem; background: #146348; color: white; font: inherit; font-weight: 650; }
@@ -19,6 +19,10 @@
     #status { min-height: 1.5em; margin: .5rem 0; }
     #status[data-error] { color: #9a2424; }
     #empty { margin: 0; color: #4d6359; }
+    section + section { margin-top: 1rem; }
+    .actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+    .actions button { width: auto; padding: 0 .8rem; background: #e4efe9; color: #162622; }
+    li p { margin: 0; }
     ul { list-style: none; margin: 0; padding: 0; }
     li { padding: .75rem 0; border-top: 1px solid #dbe5df; white-space: pre-wrap; overflow-wrap: anywhere; }
   </style>
@@ -37,6 +41,11 @@
       <p id="empty" hidden>Nenhuma tarefa registrada.</p>
       <ul id="tasks"></ul>
     </section>
+    <section aria-labelledby="completed-heading">
+      <h2 id="completed-heading">Concluídas</h2>
+      <p id="completed-empty" hidden>Nenhuma tarefa concluída.</p>
+      <ul id="completed"></ul>
+    </section>
   </main>
   <script>
     const form = document.querySelector('#capture');
@@ -45,6 +54,8 @@
     const status = document.querySelector('#status');
     const list = document.querySelector('#tasks');
     const empty = document.querySelector('#empty');
+    const completed = document.querySelector('#completed');
+    const completedEmpty = document.querySelector('#completed-empty');
 
     function openDatabase() {
       return new Promise((resolve, reject) => {
@@ -67,10 +78,104 @@
       });
     }
 
-    function taskRow(task) {
+    function updateTask(db, id, changes) {
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction('tasks', 'readwrite');
+        const store = transaction.objectStore('tasks');
+        const request = store.get(id);
+        let updated;
+        request.onsuccess = () => {
+          if (!request.result) {
+            transaction.abort();
+            return;
+          }
+          updated = { ...request.result, ...changes };
+          store.put(updated);
+        };
+        transaction.oncomplete = () => resolve(updated);
+        transaction.onabort = () => reject(transaction.error);
+      });
+    }
+
+    function action(label, handler, type = 'button') {
+      const button = document.createElement('button');
+      button.type = type;
+      button.textContent = label;
+      if (handler) button.addEventListener('click', handler);
+      return button;
+    }
+
+    function showTask(db, task, previous) {
+      const destination = task.done ? completed : list;
       const item = document.createElement('li');
-      item.textContent = task.description;
+      item.dataset.id = task.id;
+      const description = document.createElement('p');
+      description.textContent = task.description;
+      const actions = document.createElement('div');
+      actions.className = 'actions';
+
+      function edit() {
+        const editor = document.createElement('form');
+        const field = document.createElement('textarea');
+        field.setAttribute('aria-label', 'Editar tarefa');
+        field.value = task.description;
+        field.maxLength = input.maxLength;
+        field.required = true;
+        const controls = document.createElement('div');
+        controls.className = 'actions';
+        const submit = action('Salvar edição', null, 'submit');
+        const cancel = action('Cancelar', () => {
+          item.replaceChildren(description, actions);
+          editButton.focus();
+        });
+        controls.append(submit, cancel);
+        editor.append(field, controls);
+        editor.addEventListener('submit', async event => {
+          event.preventDefault();
+          const text = field.value.trim();
+          if (!text) {
+            message('Digite uma descrição antes de salvar.', true);
+            field.focus();
+            return;
+          }
+          field.readOnly = submit.disabled = cancel.disabled = true;
+          try {
+            const updated = await updateTask(db, task.id, { description: text });
+            showTask(db, updated, item).querySelector('button').focus();
+            message('Tarefa atualizada.');
+          } catch {
+            message('Não foi possível salvar a edição. Tente novamente.', true);
+            field.readOnly = submit.disabled = cancel.disabled = false;
+          }
+        });
+        item.replaceChildren(editor);
+        field.focus();
+      }
+
+      const editButton = action('Editar', edit);
+      const toggle = action(task.done ? 'Reabrir' : 'Concluir', async () => {
+        editButton.disabled = toggle.disabled = true;
+        try {
+          const updated = await updateTask(db, task.id, { done: !task.done });
+          showTask(db, updated, item).querySelector('button:last-child').focus();
+          message(updated.done ? 'Tarefa concluída.' : 'Tarefa reaberta.');
+        } catch {
+          message('Não foi possível atualizar a tarefa. Tente novamente.', true);
+          editButton.disabled = toggle.disabled = false;
+        }
+      });
+      actions.append(editButton, toggle);
+      item.append(description, actions);
+      previous?.remove();
+      const next = Array.from(destination.children).find(row => Number(row.dataset.id) < task.id);
+      destination.insertBefore(item, next ?? null);
+      updateEmptyStates();
       return item;
+    }
+
+    function updateEmptyStates() {
+      empty.hidden = list.childElementCount > 0;
+      completedEmpty.hidden = completed.childElementCount > 0;
     }
 
     function message(text, error = false) {
@@ -83,8 +188,8 @@
       try {
         db = await openDatabase();
         const tasks = await transact(db, 'readonly', store => store.getAll());
-        list.replaceChildren(...tasks.reverse().map(taskRow));
-        empty.hidden = tasks.length > 0;
+        for (const task of tasks) showTask(db, task);
+        updateEmptyStates();
         save.disabled = false;
       } catch {
         message('Não foi possível abrir as tarefas neste navegador. Reabra a página para tentar novamente.', true);
@@ -104,9 +209,8 @@
         save.disabled = true;
         const task = { description };
         try {
-          await transact(db, 'readwrite', store => store.add(task));
-          list.prepend(taskRow(task));
-          empty.hidden = true;
+          task.id = await transact(db, 'readwrite', store => store.add(task));
+          showTask(db, task);
           input.value = '';
           message('Tarefa salva.');
         } catch {
