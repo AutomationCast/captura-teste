@@ -12,6 +12,7 @@
     h2 { margin: 0 0 .5rem; font-size: 1.125rem; }
     p { margin: 0; }
     label { display: block; font-weight: 650; margin-bottom: .35rem; }
+    #edit-reminder { box-sizing: border-box; width: 100%; min-height: 2.75rem; padding: .45rem; font: inherit; }
     textarea, select, button { font: inherit; color: inherit; }
     textarea, select { box-sizing: border-box; width: 100%; border: 1px solid #527260; background: white; border-radius: .7rem; padding: .55rem .7rem; }
     textarea { display: block; min-height: 5rem; resize: vertical; }
@@ -89,6 +90,7 @@
     <footer>
       <p id="account-mode" class="muted">Tarefas deste navegador</p>
       <div class="account-actions">
+        <button id="enable-reminders" type="button" hidden>Ativar lembretes neste aparelho</button>
         <button id="export-backup" type="button" disabled>Exportar backup</button>
         <button id="switch-workspace" type="button" hidden>Ver tarefas deste navegador</button>
         <button id="logout-button" type="button" hidden>Sair da conta</button>
@@ -106,6 +108,11 @@
       <select id="edit-category"></select>
       <label for="edit-priority">Prioridade</label>
       <select id="edit-priority"><option value="normal">Normal</option><option value="high">Alta</option></select>
+      <div id="reminder-fields" hidden>
+        <label for="edit-reminder">Data e hora do lembrete (opcional)</label>
+        <input id="edit-reminder" type="datetime-local" aria-describedby="reminder-help">
+        <p id="reminder-help" class="muted">Preencha para agendar. Apague a data e hora para cancelar.</p>
+      </div>
       <p id="dialog-error" role="alert"></p>
       <div class="dialog-actions">
         <button id="cancel-edit" type="button">Cancelar</button>
@@ -140,6 +147,10 @@
     const empty = document.querySelector('#empty');
     const dialog = document.querySelector('#task-dialog');
     const editForm = document.querySelector('#edit-task');
+    const reminderFields = document.querySelector('#reminder-fields');
+    const editReminder = document.querySelector('#edit-reminder');
+    const enableReminders = document.querySelector('#enable-reminders');
+    let requestedTask = new URLSearchParams(location.search).get('tarefa');
     const editDescription = document.querySelector('#edit-description');
     const editCategory = document.querySelector('#edit-category');
     const editPriority = document.querySelector('#edit-priority');
@@ -168,6 +179,7 @@
     let activeList = 'inbox';
     const descriptionLimit = 250;
     let editingId = null;
+    let originalReminder;
     let originalDescription = '';
     let busy = false;
 
@@ -324,6 +336,14 @@
         priority.textContent = 'Prioridade alta';
         metadata.append(priority);
       }
+      if (task.reminder_at && !task.done) {
+        const reminder = document.createElement('time');
+        reminder.dateTime = task.reminder_at;
+        reminder.textContent = 'Lembrete: ' + new Date(task.reminder_at).toLocaleString('pt-BR', {
+          dateStyle: 'short', timeStyle: 'short'
+        });
+        metadata.append(reminder);
+      }
       if (metadata.childElementCount) content.append(metadata);
 
       const details = document.createElement('details');
@@ -363,6 +383,12 @@
       editDescription.value = originalDescription;
       editCategory.value = task.category || '';
       editPriority.value = task.priority || 'normal';
+      reminderFields.hidden = workspace !== accountWorkspace;
+      const date = task.reminder_at ? new Date(task.reminder_at) : null;
+      editReminder.value = date
+        ? new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+        : '';
+      originalReminder = editReminder.value;
       dialogError.textContent = '';
       dialog.showModal();
       editDescription.focus();
@@ -389,13 +415,21 @@
         editDescription.focus();
         return;
       }
+      const changes = { description, category: editCategory.value, priority: editPriority.value };
+      if (!reminderFields.hidden && editReminder.value !== originalReminder) {
+        const date = editReminder.value ? new Date(editReminder.value) : null;
+        if (date && !(date.getTime() > Date.now())) {
+          dialogError.textContent = 'Escolha uma data e hora futuras para o lembrete.';
+          return;
+        }
+        changes.reminder_at = date?.toISOString() ?? null;
+      }
       busy = true;
+      editReminder.disabled = true;
       editDescription.readOnly = editCategory.disabled = editPriority.disabled = cancelEdit.disabled = saveEdit.disabled = true;
       try {
         const current = workspace;
-        const updated = await current.update(editingId, {
-          description, category: editCategory.value, priority: editPriority.value
-        });
+        const updated = await current.update(editingId, changes);
         if (workspace !== current) return;
         tasks = tasks.map(task => task.id === updated.id ? updated : task);
         dialog.close();
@@ -405,6 +439,7 @@
       } catch {
         dialogError.textContent = 'Não foi possível salvar a edição. Tente novamente.';
       } finally {
+        editReminder.disabled = false;
         editDescription.readOnly = editCategory.disabled = editPriority.disabled = cancelEdit.disabled = saveEdit.disabled = false;
         busy = false;
         updateCaptureButton();
@@ -474,7 +509,8 @@
             category: task.category || null,
             priority: task.priority || 'normal',
             status: taskList(task),
-            list: task.list || 'inbox'
+            list: task.list || 'inbox',
+            reminderAt: task.reminder_at || null
           }))
         };
         const file = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
@@ -495,7 +531,7 @@
     });
 
     function accountStore(userId) {
-      const columns = 'id,description,category,priority,list,done';
+      const columns = 'id,description,category,priority,list,done,reminder_at';
       const table = () => cloud.from('tasks');
       async function result(request) {
         const { data, error } = await request;
@@ -525,6 +561,7 @@
     async function showWorkspace(nextStore, label) {
       const requested = nextStore;
       workspace = requested;
+      enableReminders.hidden = requested !== accountWorkspace;
       workspaceReady = false;
       exportButton.disabled = true;
       tasks = [];
@@ -537,8 +574,17 @@
         if (workspace !== requested) return;
         tasks = records;
         workspaceReady = true;
+        const target = requested === accountWorkspace && tasks.find(task => task.id === requestedTask);
+        if (target) {
+          requestedTask = null;
+          activeList = taskList(target);
+        }
         render();
         message('');
+        if (target) {
+          focusTask(target.id, 'summary');
+          list.querySelector(`[data-id="${target.id}"]`)?.scrollIntoView({ block: 'center' });
+        }
       } catch {
         if (workspace !== requested) return;
         message('Não foi possível carregar as tarefas. Tente atualizar a página.', true);
@@ -662,6 +708,36 @@
         }
       } finally {
         button.disabled = false;
+      }
+    });
+
+    enableReminders.addEventListener('click', async () => {
+      if (!accountId || workspace !== accountWorkspace) return;
+      if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+        message('Este navegador não oferece lembretes. Para o teste, use o Chrome no Android.', true);
+        return;
+      }
+      const userId = accountId;
+      enableReminders.disabled = true;
+      try {
+        if (await Notification.requestPermission() !== 'granted') {
+          message('Permita as notificações do Captura nas configurações do navegador.', true);
+          return;
+        }
+        const { data, error } = await cloud.from('push_settings').select('vapid_public_key').single();
+        if (error) throw error;
+        await navigator.serviceWorker.register('./sw.js');
+        const registration = await navigator.serviceWorker.ready;
+        const subscription = await registration.pushManager.getSubscription()
+          || await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: data.vapid_public_key });
+        if (accountId !== userId) return;
+        const saved = await cloud.from('push_devices').upsert({ user_id: userId, subscription: subscription.toJSON() });
+        if (saved.error) throw saved.error;
+        message('Lembretes ativados neste aparelho.');
+      } catch {
+        message('Não foi possível ativar os lembretes. Use o Chrome no Android e tente novamente.', true);
+      } finally {
+        enableReminders.disabled = false;
       }
     });
 
