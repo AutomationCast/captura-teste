@@ -28,6 +28,7 @@
     #status[data-error], .high { color: #a12525; }
     .counts { display: grid; grid-template-columns: repeat(3, 1fr); text-align: center; gap: .35rem; padding: .65rem 0 1.15rem; }
     .counts strong { display: block; font-size: 1.3rem; }
+    footer { margin-top: 1.25rem; }
     nav { display: flex; flex-wrap: wrap; gap: .3rem; margin-bottom: .65rem; }
     nav button { padding-inline: clamp(.5rem, 2vw, .8rem); font-size: .875rem; }
     ul { list-style: none; margin: 0; padding: 0; }
@@ -79,6 +80,7 @@
       <p id="empty" class="muted" hidden>Nenhuma tarefa nesta lista.</p>
       <ul id="tasks" aria-label="Entrada"></ul>
     </section>
+    <footer><button id="export-backup" type="button" disabled>Exportar backup</button></footer>
   </main>
 
   <dialog id="task-dialog" aria-labelledby="dialog-title">
@@ -106,6 +108,7 @@
     const category = document.querySelector('#category');
     const save = document.querySelector('#save');
     const status = document.querySelector('#status');
+    const exportButton = document.querySelector('#export-backup');
     const tabs = Array.from(document.querySelectorAll('[data-list]'));
     const list = document.querySelector('#tasks');
     const empty = document.querySelector('#empty');
@@ -379,11 +382,46 @@
       }
     });
 
+    exportButton.addEventListener('click', async () => {
+      exportButton.disabled = true;
+      try {
+        const records = await transact(db, 'readonly', store => store.getAll());
+        const date = new Date();
+        const backup = {
+          version: 1,
+          exportedAt: date.toISOString(),
+          tasks: records.map(task => ({
+            id: task.id,
+            description: task.description,
+            category: task.category || null,
+            priority: task.priority || 'normal',
+            status: taskList(task),
+            list: task.list || 'inbox'
+          }))
+        };
+        const file = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(file);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'captura-backup-' + date.toISOString().slice(0, 10) + '.json';
+        document.body.append(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        message('Download do backup iniciado.');
+      } catch {
+        message('Não foi possível exportar o backup. Tente novamente.', true);
+      } finally {
+        exportButton.disabled = false;
+      }
+    });
+
     async function initialize() {
       try {
         const database = await openDatabase();
         tasks = (await transact(database, 'readonly', store => store.getAll())).reverse();
         db = database;
+        exportButton.disabled = false;
         render();
         updateCaptureButton();
       } catch {
