@@ -161,6 +161,7 @@
     const loginStatus = document.querySelector('#login-status');
     const loginCodeForm = document.querySelector('#verify-login');
 
+    const signupTest = new URLSearchParams(location.search).get('cadastro') === 'teste';
     let cloud;
     let workspace;
     let localWorkspace;
@@ -595,6 +596,11 @@
       const { data, error } = await cloud.auth.getSession();
       if (error) message('Não foi possível restaurar a sessão. Entre novamente.', true);
       await applySession(data.session);
+      if (signupTest) {
+        loginButton.textContent = 'Criar conta ou entrar';
+        document.querySelector('#login-title').textContent = 'Criar conta ou entrar';
+        document.querySelector('label[for="login-email"]').textContent = 'Seu e-mail';
+      }
       loginButton.hidden = Boolean(accountId);
       cloud.auth.onAuthStateChange((event, session) => {
         if (event !== 'TOKEN_REFRESHED') {
@@ -622,14 +628,16 @@
         const email = loginEmail.value.trim();
         const { error } = await cloud.auth.signInWithOtp({
           email,
-          options: { shouldCreateUser: false, emailRedirectTo: location.origin + location.pathname }
+          options: { shouldCreateUser: signupTest, emailRedirectTo: location.origin + location.pathname }
         });
         if (error) throw error;
         requestedEmail = email;
         loginStatus.textContent = 'Confira seu e-mail. Abra o link recebido neste navegador ou informe o código abaixo.';
         loginCodeForm.hidden = false;
       } catch {
-        loginStatus.textContent = 'Não foi possível enviar o acesso. Confira se este e-mail foi convidado e tente novamente.';
+        loginStatus.textContent = signupTest
+          ? 'Não foi possível enviar o acesso. Confira o e-mail e tente novamente.'
+          : 'Não foi possível enviar o acesso. Confira se este e-mail foi convidado e tente novamente.';
       } finally {
         button.disabled = false;
       }
