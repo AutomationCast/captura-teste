@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Captura</title>
   <style>
-    :root { color-scheme: light; font: 100%/1.5 system-ui, sans-serif; color: #1d211f; background: #f8f9f8; }
+    :root { color-scheme: light; font: 100%/1.5 system-ui, sans-serif; color: #183127; background: #f0f6f1; }
     body { margin: 0; }
     main { max-width: 44rem; margin: auto; padding: clamp(.75rem, 4vw, 2rem); }
     h1 { margin: 0 0 1rem; font-size: 1.75rem; letter-spacing: -.04em; }
@@ -13,17 +13,17 @@
     p { margin: 0; }
     label { display: block; font-weight: 650; margin-bottom: .35rem; }
     textarea, select, button { font: inherit; color: inherit; }
-    textarea, select { box-sizing: border-box; width: 100%; border: 1px solid #757c77; background: white; border-radius: .7rem; padding: .55rem .7rem; }
+    textarea, select { box-sizing: border-box; width: 100%; border: 1px solid #527260; background: white; border-radius: .7rem; padding: .55rem .7rem; }
     textarea { display: block; min-height: 5rem; resize: vertical; }
     select, button, summary { min-height: 2.75rem; }
     button, summary { cursor: pointer; }
-    button { border: 1px solid #b6bcb8; border-radius: 2rem; padding: .35rem .8rem; background: white; }
+    button { border: 1px solid #9db5a5; border-radius: 2rem; padding: .35rem .8rem; background: white; }
     button:disabled { cursor: default; opacity: .55; }
     :focus-visible { outline: 3px solid #447ab5; outline-offset: 2px; }
     .capture-actions { display: flex; align-items: end; gap: .5rem; margin: .65rem 0; }
     .capture-actions > div { min-width: 0; flex: 1; }
-    .primary, [aria-pressed="true"] { background: #222723; color: white; border-color: #222723; }
-    #dictation, .muted { color: #515b54; font-size: .875rem; }
+    .primary, [aria-pressed="true"] { background: #174732; color: white; border-color: #174732; }
+    #dictation, .muted { color: #42604d; font-size: .875rem; }
     #status { min-height: 1.5em; margin: .45rem 0; font-size: .875rem; }
     #status[data-error], .high { color: #a12525; }
     .counts { display: grid; grid-template-columns: repeat(3, 1fr); text-align: center; gap: .35rem; padding: .65rem 0 1.15rem; }
@@ -32,20 +32,22 @@
     nav { display: flex; flex-wrap: wrap; gap: .3rem; margin-bottom: .65rem; }
     nav button { padding-inline: clamp(.5rem, 2vw, .8rem); font-size: .875rem; }
     ul { list-style: none; margin: 0; padding: 0; }
-    li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: .5rem; margin-bottom: .45rem; padding: .55rem; border: 1px solid #d4dad6; border-radius: .85rem; background: white; }
+    li { position: relative; margin-bottom: .45rem; padding: .55rem; border: 1px solid #c5d8ca; border-radius: .85rem; background: white; }
     .description { padding-top: .55rem; white-space: pre-wrap; overflow-wrap: anywhere; font-weight: 600; }
     .done .description { text-decoration: line-through; }
     .metadata { display: flex; flex-wrap: wrap; gap: .15rem .65rem; }
     .toggle { width: 2.75rem; padding: 0; border-color: transparent; background: transparent; display: grid; place-items: center; }
-    .toggle span { display: grid; place-items: center; width: 1.25rem; height: 1.25rem; border: 1px solid #727c75; border-radius: 50%; }
-    .done .toggle span { background: #222723; color: white; }
-    details { display: contents; }
-    summary { display: grid; place-items: center; width: 2.75rem; border-radius: .5rem; font-size: 1.35rem; }
+    .toggle span { display: grid; place-items: center; width: 1.25rem; height: 1.25rem; border: 1px solid #567760; border-radius: 50%; }
+    .done .toggle span { background: #174732; color: white; }
+    .task-main { display: grid; grid-template-columns: 2.75rem minmax(0, 1fr); gap: .5rem; padding-right: 3.25rem; align-items: start; }
+    summary { position: absolute; top: .55rem; right: .55rem; display: grid; place-items: center; width: 2.75rem; border-radius: .5rem; font-size: 1.35rem; }
     summary::-webkit-details-marker { display: none; }
-    summary:hover { background: #eef0ee; }
-    .menu { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: .35rem; padding-bottom: .25rem; }
-    dialog { box-sizing: border-box; width: min(28rem, calc(100% - 2rem)); max-height: 90dvh; border: 1px solid #a9b2ab; border-radius: .85rem; padding: 1rem; }
-    dialog::backdrop { background: #19201c80; }
+    summary:hover { background: #e0eee3; }
+    .menu { display: flex; flex-wrap: wrap; gap: .35rem; margin: .6rem 0 .25rem; }
+    details:not([open]) .menu { display: none; }
+    .delete-task { margin-top: .45rem; color: #a12525; font-size: .875rem; }
+    dialog { box-sizing: border-box; width: min(28rem, calc(100% - 2rem)); max-height: 90dvh; border: 1px solid #92ae9a; border-radius: .85rem; padding: 1rem; }
+    dialog::backdrop { background: #15322680; }
     dialog label { margin-top: .65rem; }
     .dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .45rem; margin-top: .85rem; }
     #dialog-error { color: #a12525; margin-top: .4rem; }
@@ -293,9 +295,18 @@
         menu.append(action('Mover para ' + title, () =>
           changeTask(task, { list: destination, done: false }, `Tarefa movida para ${title}.`)));
       }
-      menu.append(action('Excluir', () => deleteTask(task)));
+      if (task.done) {
+        const remove = action('Excluir definitivamente', () => deleteTask(task));
+        remove.className = 'delete-task';
+        content.append(remove);
+      } else {
+        menu.append(action('Excluir', () => deleteTask(task)));
+      }
       details.append(summary, menu);
-      row.append(toggle, content, details);
+      const main = document.createElement('div');
+      main.className = 'task-main';
+      main.append(toggle, content);
+      row.append(main, details);
       return row;
     }
 
