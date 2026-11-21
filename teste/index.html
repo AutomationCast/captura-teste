@@ -32,22 +32,53 @@
     .muted { color: #42604d; font-size: .875rem; }
     #status { min-height: 1.5em; margin: .45rem 0; font-size: .875rem; }
     #status[data-error], .high { color: #a12525; }
-    .counts { display: grid; grid-template-columns: repeat(3, 1fr); text-align: center; gap: .35rem; padding: .65rem 0 1.15rem; }
-    .counts strong { display: block; font-size: 1.3rem; }
-    footer { margin-top: 1.25rem; }
-    #reminder-panel summary { min-height: auto; padding: .4rem 0; }
-    #reminder-state { margin-top: .6rem; }
+    footer {
+      margin-top: 1.25rem;
+      padding: .8rem .9rem;
+      border: 1px solid #c5d8ca;
+      border-radius: .95rem;
+      background: #e8f0ea;
+    }
+    #account-mode { overflow-wrap: anywhere; }
+    #reminder-panel { margin-top: .55rem; border-top: 1px solid #c5d8ca; padding-top: .25rem; }
+    #reminder-panel summary { min-height: 2.75rem; padding: .55rem 0; box-sizing: border-box; font-size: .875rem; }
+    #reminder-diagnosis { margin-bottom: .45rem; }
+    #reminder-state { margin-top: .65rem; }
+    #reminder-state[data-active]::before {
+      content: ''; display: inline-block; margin-inline-end: .45rem;
+      width: .55rem; height: .55rem; border-radius: 50%; background: #247448;
+    }
     #editor-reminder-state { margin-top: .35rem; }
-    .account-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .5rem; }
+    .account-actions { display: flex; flex-wrap: wrap; gap: .3rem; margin: .25rem 0 0 -.45rem; }
+    .account-actions button { border-color: transparent; padding-inline: .45rem; background: transparent; font-size: .875rem; text-decoration: underline; text-underline-offset: .18em; }
+    .account-actions button:hover { background: #dcebe0; }
     #login-dialog input { box-sizing: border-box; width: 100%; min-height: 2.75rem; padding: .5rem; font: inherit; }
     #login-status { margin-top: .5rem; }
-    nav { display: flex; flex-wrap: wrap; gap: .3rem; margin-bottom: .65rem; }
-    nav button { padding-inline: clamp(.5rem, 2vw, .8rem); font-size: .875rem; }
+    nav { display: flex; flex-wrap: wrap; gap: .35rem; margin-bottom: .7rem; }
+    nav button {
+      display: inline-flex; align-items: center; justify-content: center; gap: .25rem;
+      padding-inline: clamp(.35rem, 1.7vw, .8rem); font-size: .875rem; font-weight: 650;
+    }
+    .tab-count {
+      min-width: 1.2em; border-radius: 1rem; padding: 0 .2em;
+      background: #e6f0e8; font-size: .78em; font-variant-numeric: tabular-nums;
+    }
+    nav button[aria-pressed="true"] .tab-count { background: #ffffff2b; }
+    @media (max-width: 380px) {
+      nav { display: grid; grid-template-columns: minmax(0, 1.03fr) minmax(0, .78fr) minmax(0, 1.2fr) minmax(0, 1fr); gap: .22rem; }
+      nav button { min-width: 0; font-size: .75rem; padding-inline: .1rem; gap: .15rem; }
+      .tab-count { min-width: 1em; padding-inline: .1em; }
+    }
     ul { list-style: none; margin: 0; padding: 0; }
     li { position: relative; margin-bottom: .45rem; padding: .55rem; border: 1px solid #c5d8ca; border-radius: .85rem; background: white; }
     .description { padding-top: .55rem; white-space: pre-wrap; overflow-wrap: anywhere; font-weight: 600; }
     .done .description { text-decoration: line-through; }
-    .metadata { display: flex; flex-wrap: wrap; gap: .15rem .65rem; }
+    .metadata { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .45rem; margin-top: .2rem; }
+    .task-category, .task-overdue { border-radius: .4rem; padding: .08rem .38rem; font-size: .78rem; }
+    .task-category { background: #eef5ee; }
+    .task-overdue { background: #f8ece8; }
+    .task-reminder { display: flex; align-items: center; gap: .25rem; color: #24583c; font-weight: 650; }
+    .task-reminder span { font-size: .8em; }
     .toggle { width: 2.75rem; padding: 0; border-color: transparent; background: transparent; display: grid; place-items: center; }
     .toggle span { display: grid; place-items: center; width: 1.25rem; height: 1.25rem; border: 1px solid #567760; border-radius: 50%; }
     .done .toggle span { background: #174732; color: white; }
@@ -79,17 +110,12 @@
       </div>
     </form>
     <p id="status" role="status"></p>
-    <div class="counts" aria-label="Resumo de demandas">
-      <p><strong id="count-inbox">0</strong><span class="muted">Na entrada</span></p>
-      <p><strong id="count-today">0</strong><span class="muted">Para hoje</span></p>
-      <p><strong id="count-planned">0</strong><span class="muted">Planejadas</span></p>
-    </div>
     <section aria-labelledby="demands">
       <h2 id="demands">Minhas demandas</h2>
       <nav aria-label="Listas de tarefas">
-        <button type="button" data-list="inbox" aria-pressed="true">Entrada</button>
-        <button type="button" data-list="today" aria-pressed="false">Hoje</button>
-        <button type="button" data-list="planned" aria-pressed="false">Planejado</button>
+        <button type="button" data-list="inbox" aria-pressed="true">Entrada <span class="tab-count" id="count-inbox">0</span></button>
+        <button type="button" data-list="today" aria-pressed="false">Hoje <span class="tab-count" id="count-today">0</span></button>
+        <button type="button" data-list="planned" aria-pressed="false">Planejado <span class="tab-count" id="count-planned">0</span></button>
         <button type="button" data-list="done" aria-pressed="false">Concluído</button>
       </nav>
       <p id="empty" class="muted" hidden>Nenhuma tarefa nesta lista.</p>
@@ -370,6 +396,7 @@
       metadata.className = 'metadata muted';
       if (task.category) {
         const label = document.createElement('span');
+        label.className = 'task-category';
         label.textContent = task.category;
         metadata.append(label);
       }
@@ -382,13 +409,21 @@
       if (task.reminder_at && !task.done) {
         const reminder = document.createElement('time');
         reminder.dateTime = task.reminder_at;
-        reminder.textContent = 'Lembrete: ' + new Date(task.reminder_at).toLocaleString('pt-BR', {
-          dateStyle: 'short', timeStyle: 'short'
+        reminder.className = 'task-reminder';
+        const date = new Date(task.reminder_at);
+        const day = localDay(date) === today ? 'Hoje' : date.toLocaleDateString('pt-BR', {
+          day: 'numeric', month: 'short', ...(date.getFullYear() !== new Date(today).getFullYear() ? { year: 'numeric' } : {})
         });
+        const time = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }).replace(':', 'h');
+        const bell = document.createElement('span');
+        bell.setAttribute('aria-hidden', 'true');
+        bell.textContent = '🔔';
+        reminder.append(bell, day + ', ' + time);
+        reminder.setAttribute('aria-label', 'Lembrete: ' + day + ', ' + time);
         metadata.append(reminder);
         if (localDay(task.reminder_at) < today) {
           const overdue = document.createElement('span');
-          overdue.className = 'high';
+          overdue.className = 'high task-overdue';
           overdue.textContent = 'Atrasada';
           metadata.append(overdue);
         }
@@ -818,17 +853,29 @@
         error: 'Não foi possível verificar os lembretes. Tente novamente.'
       };
       const label = labels[reminderState];
-      reminderStateText.textContent = reminderState === 'active' ? label :
-        reminderState === 'other' ? label : 'Lembretes neste aparelho: ' + label;
-      reminderDiagnosis.textContent = reminderState === 'other'
-        ? label + ' Escolher este aparelho substitui o destino anterior.'
-        : label;
+      reminderStateText.toggleAttribute('data-active', reminderState === 'active');
+      const summaries = {
+        active: 'Lembretes ativos',
+        other: 'Lembretes em outro aparelho',
+        denied: 'Notificações bloqueadas',
+        install: 'Adicione à Tela de Início para receber lembretes',
+        unsupported: 'Lembretes indisponíveis neste navegador',
+        ready: 'Aparelho aguardando confirmação',
+        inactive: 'Lembretes desativados',
+        error: 'Lembretes indisponíveis no momento'
+      };
+      reminderStateText.textContent = summaries[reminderState] || label;
+      reminderDiagnosis.textContent = reminderState === 'active'
+        ? 'Permissão concedida. Este navegador é o destino dos avisos.'
+        : reminderState === 'other'
+          ? label + ' Escolher este aparelho substitui o destino anterior.'
+          : label;
       const needsAction = !['active', 'denied', 'install', 'unsupported', 'checking'].includes(reminderState);
       const labelAction = reminderState === 'other' ? 'Usar este aparelho' :
         reminderState === 'ready' ? 'Confirmar este aparelho' : 'Permitir notificações';
       const scheduling = available && !reminderFields.hidden && Boolean(editReminder.value);
       editorReminderState.hidden = !scheduling;
-      editorReminderState.textContent = reminderDiagnosis.textContent;
+      editorReminderState.textContent = reminderState === 'active' ? label : reminderDiagnosis.textContent;
       for (const button of [enableReminders, editorReminderAction]) {
         button.hidden = !available || !needsAction || (button === editorReminderAction && !scheduling);
         button.disabled = changingReminderDevice;
