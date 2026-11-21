@@ -150,6 +150,10 @@
     const empty = document.querySelector('#empty');
     const dialog = document.querySelector('#task-dialog');
     const editForm = document.querySelector('#edit-task');
+    const guestPath = /\/teste\/(?:index\.html)?$/.test(location.pathname);
+    let guestWorkspace;
+    let guestRemindersActive = false;
+    let guestCloudReady;
     const reminderFields = document.querySelector('#reminder-fields');
     const editReminder = document.querySelector('#edit-reminder');
     const enableReminders = document.querySelector('#enable-reminders');
@@ -386,7 +390,8 @@
       editDescription.value = originalDescription;
       editCategory.value = task.category || '';
       editPriority.value = task.priority || 'normal';
-      reminderFields.hidden = workspace !== accountWorkspace;
+      reminderFields.hidden = workspace !== accountWorkspace &&
+        !(workspace === guestWorkspace && guestRemindersActive);
       const date = task.reminder_at ? new Date(task.reminder_at) : null;
       editReminder.value = date
         ? new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
@@ -564,8 +569,8 @@
     async function showWorkspace(nextStore, label) {
       const requested = nextStore;
       workspace = requested;
-      enableReminders.hidden = requested !== accountWorkspace;
-      if (!enableReminders.hidden) void prepareReminders().catch(() => {});
+      enableReminders.hidden = requested !== accountWorkspace && requested !== guestWorkspace;
+      if (requested === accountWorkspace) void prepareReminders().catch(() => {});
       workspaceReady = false;
       exportButton.disabled = true;
       tasks = [];
@@ -578,7 +583,9 @@
         if (workspace !== requested) return;
         tasks = records;
         workspaceReady = true;
-        const target = requested === accountWorkspace && tasks.find(task => task.id === requestedTask);
+        const target = requestedTask && tasks.find(task =>
+          (requested === accountWorkspace && task.id === requestedTask) ||
+          (requested === guestWorkspace && task.reminderCloudId === requestedTask));
         if (target) {
           requestedTask = null;
           activeList = taskList(target);
@@ -654,7 +661,7 @@
       }
     }
 
-    async function initializeCloud() {
+    async function connectCloud(authOptions = {}) {
       const script = document.createElement('script');
       script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.2/dist/umd/supabase.js';
       script.integrity = 'sha384-A97u3Qnt9GZHURO9YJZRe7VQgGUeFzcv6I1oIGnUTxQrCxnpQMwR0/G8F2zt9abZ';
@@ -667,8 +674,12 @@
       cloud = window.supabase.createClient(
         'https://yxiloykwsrnzheeehxkt.supabase.co',
         'sb_publishable_Yq_VRwQdBl3kR3ZFIgtMHQ_NNB97Hih',
-        { auth: { persistSession: true, autoRefreshToken: true } }
+        { auth: { persistSession: true, autoRefreshToken: true, ...authOptions } }
       );
+    }
+
+    async function initializeCloud() {
+      await connectCloud();
       const { data, error } = await cloud.auth.getSession();
       await applySession(data.session);
       sendAccess.disabled = false;
@@ -735,8 +746,22 @@
         try {
           const { data, error } = await cloud.from('push_settings').select('vapid_public_key').single();
           if (error) throw error;
-          await registerReminderWorker();
-          const registration = await navigator.serviceWorker.ready;
+          const registration = await registerReminderWorker();
+          if (!registration.active) {
+            const worker = registration.installing || registration.waiting;
+            if (!worker) throw new Error('Serviço de notificações indisponível');
+            await new Promise((resolve, reject) => {
+              function checkState() {
+                if (worker.state === 'activated' || worker.state === 'redundant') {
+                  worker.removeEventListener('statechange', checkState);
+                  if (worker.state === 'activated') resolve();
+                  else reject(new Error('Serviço de notificações indisponível'));
+                }
+              }
+              worker.addEventListener('statechange', checkState);
+              checkState();
+            });
+          }
           const subscription = await registration.pushManager.getSubscription();
           const key = data.vapid_public_key.replace(/-/g, '+').replace(/_/g, '/');
           const applicationServerKey = Uint8Array.from(atob(key.padEnd(Math.ceil(key.length / 4) * 4, '=')),
@@ -753,7 +778,7 @@
     }
 
     enableReminders.addEventListener('click', async () => {
-      if (!accountId || workspace !== accountWorkspace) return;
+      if (workspace !== guestWorkspace && (!accountId || workspace !== accountWorkspace)) return;
       if (appleMobile && !installedApp) {
         message('No iPhone ou iPad, toque em Compartilhar → Adicionar à Tela de Início. Depois abra o Captura pelo ícone.', true);
         return;
@@ -763,11 +788,15 @@
         return;
       }
       if (!reminderOptions) {
+        enableReminders.disabled = true;
         try {
+          if (workspace === guestWorkspace && !accountId) await connectGuest(true);
           await prepareReminders();
           message('Preparação concluída. Toque em Ativar lembretes neste aparelho novamente.');
         } catch {
           message('Não foi possível preparar os lembretes. Tente novamente.', true);
+        } finally {
+          enableReminders.disabled = false;
         }
         return;
       }
@@ -783,6 +812,10 @@
         if (accountId !== userId) return;
         const saved = await cloud.from('push_devices').upsert({ user_id: userId, subscription: subscription.toJSON() });
         if (saved.error) throw saved.error;
+        if (workspace === guestWorkspace) {
+          localStorage.setItem('captura-teste-lembretes', 'on');
+          guestRemindersActive = true;
+        }
         message('Lembretes ativados neste aparelho.');
       } catch {
         message(Notification.permission === 'denied'
@@ -817,6 +850,78 @@
       };
     }
 
+    async function connectGuest(createAccount = false) {
+      if (!guestCloudReady) {
+        guestCloudReady = connectCloud({
+          storageKey: 'captura-teste-auth',
+          detectSessionInUrl: false
+        }).catch(error => {
+          guestCloudReady = null;
+          throw error;
+        });
+      }
+      await guestCloudReady;
+      let result = await cloud.auth.getSession();
+      if (!result.data.session && createAccount) result = await cloud.auth.signInAnonymously();
+      const user = result.data.session?.user;
+      if (result.error || !user?.is_anonymous) throw result.error || new Error('Sessão de teste indisponível');
+      accountId = user.id;
+    }
+
+    async function changeGuestReminder(task, changes, saveId) {
+      const next = { ...task, ...changes };
+      if (!next.reminder_at || next.done) {
+        await removeGuestReminder(task.reminderCloudId);
+        return;
+      }
+      if (!task.reminder_at && !('reminder_at' in changes)) return;
+      if (!guestRemindersActive) throw new Error('Ative os lembretes neste aparelho');
+      await connectGuest();
+      const cloudId = task.reminderCloudId || crypto.randomUUID();
+      if (!task.reminderCloudId) await saveId(cloudId);
+      const record = { description: next.description, reminder_at: next.reminder_at };
+      const updated = await cloud.from('tasks').update(record).eq('id', cloudId)
+        .eq('user_id', accountId).select('id').maybeSingle();
+      if (updated.error) throw updated.error;
+      if (!updated.data) {
+        const inserted = await cloud.from('tasks').insert({ ...record, id: cloudId, user_id: accountId });
+        if (inserted.error) throw inserted.error;
+      }
+    }
+
+    async function removeGuestReminder(id) {
+      if (!id) return;
+      await connectGuest();
+      const result = await cloud.from('tasks').delete().eq('id', id).eq('user_id', accountId);
+      if (result.error) throw result.error;
+    }
+
+    async function createGuestWorkspace() {
+      const local = await createLocalWorkspace('captura-teste-local');
+      async function findTask(id) {
+        const task = (await local.read()).find(item => item.id === id);
+        if (!task) throw new Error('Tarefa não encontrada');
+        return task;
+      }
+      return {
+        ...local,
+        async update(id, changes) {
+          const task = await findTask(id);
+          if ('reminder_at' in changes || 'description' in changes || 'done' in changes) {
+            await changeGuestReminder(task, changes, async cloudId => {
+              await local.update(id, { reminderCloudId: cloudId });
+            });
+          }
+          return local.update(id, changes);
+        },
+        async remove(id) {
+          const task = await findTask(id);
+          await removeGuestReminder(task.reminderCloudId);
+          await local.remove(id);
+        }
+      };
+    }
+
     async function getLocalWorkspace() {
       if (!localWorkspace) localWorkspace = await createLocalWorkspace('captura');
       return localWorkspace;
@@ -842,12 +947,17 @@
     });
 
     async function initialize() {
-      const testPath = location.pathname.endsWith('/teste/') || location.pathname.endsWith('/teste/index.html');
-      if (testPath || new URLSearchParams(location.search).get('modo') === 'teste-local') {
+      if (!guestPath && new URLSearchParams(location.search).get('modo') === 'teste-local') {
+        location.replace(new URL('./teste/', location.href));
+        return;
+      }
+      if (guestPath) {
         appMain.hidden = false;
         try {
-          const guest = await createLocalWorkspace('captura-teste-local');
-          await showWorkspace(guest, 'Teste local · tarefas salvas só neste navegador');
+          document.querySelector('link[rel="manifest"]').href = './manifest.webmanifest';
+          guestRemindersActive = localStorage.getItem('captura-teste-lembretes') === 'on';
+          guestWorkspace = await createGuestWorkspace();
+          await showWorkspace(guestWorkspace, 'Teste local · tarefas salvas só neste navegador');
         } catch {
           message('Não foi possível abrir o teste local. Atualize a página para tentar novamente.', true);
         }
