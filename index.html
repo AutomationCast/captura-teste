@@ -29,12 +29,15 @@
     .capture-actions { display: flex; align-items: end; gap: .5rem; margin: .65rem 0; }
     .capture-actions > div { min-width: 0; flex: 1; }
     .primary, [aria-pressed="true"] { background: #174732; color: white; border-color: #174732; }
-    #dictation, .muted { color: #42604d; font-size: .875rem; }
+    .muted { color: #42604d; font-size: .875rem; }
     #status { min-height: 1.5em; margin: .45rem 0; font-size: .875rem; }
     #status[data-error], .high { color: #a12525; }
     .counts { display: grid; grid-template-columns: repeat(3, 1fr); text-align: center; gap: .35rem; padding: .65rem 0 1.15rem; }
     .counts strong { display: block; font-size: 1.3rem; }
     footer { margin-top: 1.25rem; }
+    #reminder-panel summary { min-height: auto; padding: .4rem 0; }
+    #reminder-state { margin-top: .6rem; }
+    #editor-reminder-state { margin-top: .35rem; }
     .account-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .5rem; }
     #login-dialog input { box-sizing: border-box; width: 100%; min-height: 2.75rem; padding: .5rem; font: inherit; }
     #login-status { margin-top: .5rem; }
@@ -49,9 +52,9 @@
     .toggle span { display: grid; place-items: center; width: 1.25rem; height: 1.25rem; border: 1px solid #567760; border-radius: 50%; }
     .done .toggle span { background: #174732; color: white; }
     .task-main { display: grid; grid-template-columns: 2.75rem minmax(0, 1fr); gap: .5rem; padding-right: 3.25rem; align-items: start; }
-    summary { position: absolute; top: .55rem; right: .55rem; display: grid; place-items: center; width: 2.75rem; border-radius: .5rem; font-size: 1.35rem; }
-    summary::-webkit-details-marker { display: none; }
-    summary:hover { background: #e0eee3; }
+    li summary { position: absolute; top: .55rem; right: .55rem; display: grid; place-items: center; width: 2.75rem; border-radius: .5rem; font-size: 1.35rem; }
+    li summary::-webkit-details-marker { display: none; }
+    li summary:hover { background: #e0eee3; }
     .menu { display: flex; flex-wrap: wrap; gap: .35rem; margin: .6rem 0 .25rem; }
     details:not([open]) .menu { display: none; }
     .delete-task { margin-top: .45rem; color: #a12525; font-size: .875rem; }
@@ -68,13 +71,12 @@
     <p class="app-subtitle muted"><span aria-hidden="true">🔔</span> Lista de tarefas com lembretes</p>
     <form id="capture">
       <label for="task">O que você precisa lembrar?</label>
-      <textarea id="task" rows="1" placeholder="Ex.: Comprar café" required aria-describedby="capture-length dictation"></textarea>
+      <textarea id="task" rows="1" placeholder="Ex.: Comprar café" required aria-describedby="capture-length"></textarea>
       <p id="capture-length" class="muted">0 de 250 caracteres</p>
       <div class="capture-actions">
         <div><label for="category">Categoria opcional</label><select id="category"></select></div>
         <button id="save" class="primary" type="submit" disabled>Capturar</button>
       </div>
-      <p id="dictation">Para ditar, toque no campo e use o microfone do teclado, se disponível.</p>
     </form>
     <p id="status" role="status"></p>
     <div class="counts" aria-label="Resumo de demandas">
@@ -96,11 +98,16 @@
     <footer>
       <p id="account-mode" class="muted">Tarefas deste navegador</p>
       <div class="account-actions">
-        <button id="enable-reminders" type="button" hidden>Ativar lembretes neste aparelho</button>
         <button id="export-backup" type="button" disabled>Exportar backup</button>
         <button id="switch-workspace" type="button" hidden>Ver tarefas deste navegador</button>
         <button id="logout-button" type="button" hidden>Sair da conta</button>
       </div>
+      <p id="reminder-state" class="muted" role="status" hidden></p>
+      <details id="reminder-panel" hidden>
+        <summary>Verificar lembretes</summary>
+        <p id="reminder-diagnosis" class="muted"></p>
+        <button id="enable-reminders" type="button">Permitir notificações</button>
+      </details>
     </footer>
   </main>
 
@@ -118,6 +125,8 @@
         <label for="edit-reminder">Data e hora do lembrete (opcional)</label>
         <input id="edit-reminder" type="datetime-local" aria-describedby="reminder-help">
         <p id="reminder-help" class="muted">Preencha para agendar. Apague a data e hora para cancelar.</p>
+        <p id="editor-reminder-state" class="muted" role="status" hidden></p>
+        <button id="editor-reminder-action" type="button" hidden>Permitir notificações</button>
       </div>
       <p id="dialog-error" role="alert"></p>
       <div class="dialog-actions">
@@ -160,6 +169,11 @@
     const reminderFields = document.querySelector('#reminder-fields');
     const editReminder = document.querySelector('#edit-reminder');
     const enableReminders = document.querySelector('#enable-reminders');
+    const reminderStateText = document.querySelector('#reminder-state');
+    const reminderPanel = document.querySelector('#reminder-panel');
+    const reminderDiagnosis = document.querySelector('#reminder-diagnosis');
+    const editorReminderState = document.querySelector('#editor-reminder-state');
+    const editorReminderAction = document.querySelector('#editor-reminder-action');
     let requestedTask = new URLSearchParams(location.search).get('tarefa');
     const editDescription = document.querySelector('#edit-description');
     const editCategory = document.querySelector('#edit-category');
@@ -418,13 +432,15 @@
       editDescription.value = originalDescription;
       editCategory.value = task.category || '';
       editPriority.value = task.priority || 'normal';
-      reminderFields.hidden = workspace !== accountWorkspace &&
-        !(workspace === guestWorkspace && guestRemindersActive);
+      reminderFields.hidden = !reminderWorkspace();
+      editorReminderState.hidden = true;
+      editorReminderAction.hidden = true;
       const date = task.reminder_at ? new Date(task.reminder_at) : null;
       editReminder.value = date
         ? new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
         : '';
       originalReminder = editReminder.value;
+      paintReminderState();
       dialogError.textContent = '';
       dialog.showModal();
       editDescription.focus();
@@ -456,6 +472,11 @@
         const date = editReminder.value ? new Date(editReminder.value) : null;
         if (date && !(date.getTime() > Date.now())) {
           dialogError.textContent = 'Escolha uma data e hora futuras para o lembrete.';
+          return;
+        }
+        if (date && reminderState !== 'active' && reminderState !== 'other') {
+          dialogError.textContent = 'Permita as notificações antes de salvar este lembrete.';
+          paintReminderState();
           return;
         }
         changes.reminder_at = date?.toISOString() ?? null;
@@ -605,8 +626,10 @@
     async function showWorkspace(nextStore, label) {
       const requested = nextStore;
       workspace = requested;
-      enableReminders.hidden = requested !== accountWorkspace && requested !== guestWorkspace;
-      if (requested === accountWorkspace) void prepareReminders().catch(() => {});
+      reminderPanel.open = false;
+      reminderState = 'checking';
+      paintReminderState();
+      if (reminderWorkspace()) void refreshReminderStatus();
       workspaceReady = false;
       exportButton.disabled = true;
       tasks = [];
@@ -772,12 +795,106 @@
     const supportsPush = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
     let reminderSetup;
     let reminderOptions;
+    let reminderState = 'checking';
+    let statusCheck = 0;
+    let changingReminderDevice = false;
+
+    function reminderWorkspace() {
+      return workspace && (workspace === accountWorkspace || workspace === guestWorkspace);
+    }
+
+    function paintReminderState() {
+      const available = Boolean(reminderWorkspace());
+      reminderPanel.hidden = reminderStateText.hidden = !available;
+      const labels = {
+        checking: 'Verificando lembretes…',
+        active: 'Lembretes ativos neste aparelho.',
+        other: 'Lembretes configurados em outro aparelho ou navegador.',
+        denied: 'Notificações bloqueadas neste aparelho. Permita-as nas configurações e volte ao Captura.',
+        install: 'No iPhone ou iPad, use Compartilhar → Adicionar à Tela de Início e abra pelo ícone.',
+        unsupported: 'Este navegador não oferece notificações do Captura.',
+        ready: 'Permissão concedida. Confirme este aparelho como destino dos lembretes.',
+        inactive: 'Este aparelho ainda não recebe lembretes.',
+        error: 'Não foi possível verificar os lembretes. Tente novamente.'
+      };
+      const label = labels[reminderState];
+      reminderStateText.textContent = reminderState === 'active' ? label :
+        reminderState === 'other' ? label : 'Lembretes neste aparelho: ' + label;
+      reminderDiagnosis.textContent = reminderState === 'other'
+        ? label + ' Escolher este aparelho substitui o destino anterior.'
+        : label;
+      const needsAction = !['active', 'denied', 'install', 'unsupported', 'checking'].includes(reminderState);
+      const labelAction = reminderState === 'other' ? 'Usar este aparelho' :
+        reminderState === 'ready' ? 'Confirmar este aparelho' : 'Permitir notificações';
+      const scheduling = available && !reminderFields.hidden && Boolean(editReminder.value);
+      editorReminderState.hidden = !scheduling;
+      editorReminderState.textContent = reminderDiagnosis.textContent;
+      for (const button of [enableReminders, editorReminderAction]) {
+        button.hidden = !available || !needsAction || (button === editorReminderAction && !scheduling);
+        button.disabled = changingReminderDevice;
+        button.textContent = labelAction;
+      }
+    }
+
+    function endpointKey() {
+      return 'captura-destino-lembretes:' + accountId;
+    }
+
+    async function refreshReminderStatus() {
+      if (!reminderWorkspace() || changingReminderDevice) return;
+      const current = workspace;
+      const check = ++statusCheck;
+      let next;
+      try {
+        if (appleMobile && !installedApp) next = 'install';
+        else if (!supportsPush) next = 'unsupported';
+        else {
+          const permission = Notification.permission;
+          if (current === guestWorkspace && !guestRemindersActive) {
+            next = permission === 'denied' ? 'denied' : permission === 'granted' ? 'ready' : 'inactive';
+          } else {
+            if (current === guestWorkspace && !accountId) await connectGuest();
+            const { data, error } = await cloud.from('push_devices').select('subscription').eq('user_id', accountId).maybeSingle();
+            if (error) throw error;
+            const registration = await navigator.serviceWorker.getRegistration();
+            const scope = new URL('./', location.href).href;
+            const subscription = registration?.scope === scope
+              ? await registration.pushManager.getSubscription() : null;
+            if (reminderOptions) reminderOptions.subscription = subscription;
+            const destination = data?.subscription?.endpoint;
+            if (permission === 'denied') next = 'denied';
+            else if (permission === 'granted' && subscription && subscription.endpoint === destination) {
+              localStorage.setItem(endpointKey(), destination);
+              next = 'active';
+            } else if (destination && destination !== localStorage.getItem(endpointKey())) next = 'other';
+            else next = permission === 'granted' ? 'ready' : 'inactive';
+            if (permission !== 'denied' && next !== 'active') void prepareReminders().catch(() => {});
+          }
+        }
+      } catch {
+        next = 'error';
+      }
+      if (check !== statusCheck || workspace !== current || changingReminderDevice) return;
+      reminderState = next;
+      paintReminderState();
+    }
+
+    editReminder.addEventListener('input', paintReminderState);
+    reminderPanel.addEventListener('toggle', () => {
+      if (reminderPanel.open) void refreshReminderStatus();
+    });
+    window.addEventListener('focus', refreshReminderStatus);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) void refreshReminderStatus();
+    });
+    navigator.permissions?.query({ name: 'notifications' }).then(permission => {
+      permission.addEventListener('change', refreshReminderStatus);
+    }).catch(() => {});
 
     function prepareReminders() {
       if ((appleMobile && !installedApp) || !supportsPush) return Promise.resolve();
       if (reminderSetup) return reminderSetup;
 
-      enableReminders.disabled = true;
       reminderSetup = (async () => {
         try {
           const { data, error } = await cloud.from('push_settings').select('vapid_public_key').single();
@@ -806,61 +923,66 @@
         } catch (error) {
           reminderSetup = null;
           throw error;
-        } finally {
-          enableReminders.disabled = false;
         }
       })();
       return reminderSetup;
     }
 
-    enableReminders.addEventListener('click', async () => {
-      if (workspace !== guestWorkspace && (!accountId || workspace !== accountWorkspace)) return;
-      if (appleMobile && !installedApp) {
-        message('No iPhone ou iPad, toque em Compartilhar → Adicionar à Tela de Início. Depois abra o Captura pelo ícone.', true);
+    async function enableReminderDevice() {
+      if (!reminderWorkspace() || changingReminderDevice) return;
+      if (Notification.permission === 'denied') {
+        reminderState = 'denied';
+        paintReminderState();
         return;
       }
-      if (!supportsPush) {
-        message('Este navegador não oferece lembretes. No iPhone ou iPad, use iOS 16.4 ou posterior.', true);
-        return;
-      }
-      if (!reminderOptions) {
-        enableReminders.disabled = true;
-        try {
-          if (workspace === guestWorkspace && !accountId) await connectGuest(true);
-          await prepareReminders();
-          message('Preparação concluída. Toque em Ativar lembretes neste aparelho novamente.');
-        } catch {
-          message('Não foi possível preparar os lembretes. Tente novamente.', true);
-        } finally {
-          enableReminders.disabled = false;
-        }
-        return;
-      }
-
-      const userId = accountId;
-      const { registration, subscription: existing, applicationServerKey } = reminderOptions;
-      enableReminders.disabled = true;
+      const current = workspace;
+      changingReminderDevice = true;
+      paintReminderState();
+      const feedback = dialog.open ? text => { dialogError.textContent = text; } : message;
       try {
-        // Safari requires a direct tap to request the push subscription.
-        const subscription = existing ||
+        if (!reminderOptions) {
+          if (current === guestWorkspace && !accountId) await connectGuest(true);
+          await prepareReminders();
+          if (!reminderOptions.subscription) {
+            feedback('Preparação concluída. Toque novamente para ativar as notificações.');
+            return;
+          }
+        }
+
+        const userId = accountId;
+        const { registration, applicationServerKey } = reminderOptions;
+        // The browser requires the first subscription request to start from a tap.
+        const subscription = reminderOptions.subscription ||
           await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey });
         reminderOptions.subscription = subscription;
-        if (accountId !== userId) return;
+        if (workspace !== current || accountId !== userId) return;
         const saved = await cloud.from('push_devices').upsert({ user_id: userId, subscription: subscription.toJSON() });
         if (saved.error) throw saved.error;
-        if (workspace === guestWorkspace) {
+        if (workspace !== current || accountId !== userId) return;
+        if (current === guestWorkspace) {
           localStorage.setItem('captura-teste-lembretes', 'on');
           guestRemindersActive = true;
         }
-        message('Lembretes ativados neste aparelho.');
+        localStorage.setItem(endpointKey(), subscription.endpoint);
+        reminderState = 'active';
+        feedback('');
       } catch {
-        message(Notification.permission === 'denied'
-          ? 'Permita as notificações do Captura nas configurações do aparelho.'
-          : 'Não foi possível ativar os lembretes neste aparelho. Tente novamente.', true);
+        reminderOptions = null;
+        reminderSetup = null;
+        if (Notification.permission === 'denied') {
+          reminderState = 'denied';
+          feedback('Permita as notificações do Captura nas configurações do aparelho.');
+        } else {
+          feedback('Não foi possível ativar os lembretes. Tente novamente.');
+        }
       } finally {
-        enableReminders.disabled = false;
+        changingReminderDevice = false;
+        paintReminderState();
       }
-    });
+    }
+
+    enableReminders.addEventListener('click', enableReminderDevice);
+    editorReminderAction.addEventListener('click', enableReminderDevice);
 
     logoutButton.addEventListener('click', async () => {
       if (busy) return;
