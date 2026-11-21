@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Captura</title>
+  <title>Captura · Lista de tarefas com lembretes</title>
   <link rel="manifest" href="/captura-teste/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/captura-teste/captura-180.png">
   <meta name="theme-color" content="#174732">
@@ -19,6 +19,8 @@
     textarea, select, button { font: inherit; color: inherit; }
     textarea, select { box-sizing: border-box; width: 100%; border: 1px solid #527260; background: white; border-radius: .7rem; padding: .55rem .7rem; }
     textarea { display: block; min-height: 5rem; resize: vertical; }
+    #task { min-height: 2.75rem; max-height: 8.5rem; resize: none; }
+    .app-subtitle { margin: -.65rem 0 1rem; }
     select, button, summary { min-height: 2.75rem; }
     button, summary { cursor: pointer; }
     button { border: 1px solid #9db5a5; border-radius: 2rem; padding: .35rem .8rem; background: white; }
@@ -63,9 +65,10 @@
 <body>
   <main hidden>
     <h1>Captura</h1>
+    <p class="app-subtitle muted"><span aria-hidden="true">🔔</span> Lista de tarefas com lembretes</p>
     <form id="capture">
       <label for="task">O que você precisa lembrar?</label>
-      <textarea id="task" placeholder="Ex.: Ligar para o dentista ou comprar café" required aria-describedby="capture-length dictation"></textarea>
+      <textarea id="task" rows="1" placeholder="Ex.: Comprar café" required aria-describedby="capture-length dictation"></textarea>
       <p id="capture-length" class="muted">0 de 250 caracteres</p>
       <div class="capture-actions">
         <div><label for="category">Categoria opcional</label><select id="category"></select></div>
@@ -234,9 +237,27 @@
       });
     }
 
-    function taskList(task) {
-      return task.done ? 'done' : task.list || 'inbox';
+    function localDay(value = new Date()) {
+      return new Date(value).setHours(0, 0, 0, 0);
     }
+
+    let renderedDay = localDay();
+
+    function taskList(task, today = localDay()) {
+      if (task.done) return 'done';
+      if (task.reminder_at) return localDay(task.reminder_at) > today ? 'planned' : 'today';
+      return task.list || 'inbox';
+    }
+
+    function refreshCalendar() {
+      if (!busy && !dialog.open && renderedDay !== localDay()) render();
+    }
+
+    window.addEventListener('focus', refreshCalendar);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) refreshCalendar();
+    });
+    setInterval(refreshCalendar, 15000);
 
     function message(text, error = false) {
       status.textContent = text;
@@ -252,12 +273,13 @@
     }
 
     function render() {
+      renderedDay = localDay();
       const counts = { inbox: 0, today: 0, planned: 0, done: 0 };
       const visible = [];
       for (const task of tasks) {
-        const location = taskList(task);
+        const location = taskList(task, renderedDay);
         counts[location]++;
-        if (location === activeList) visible.push(taskRow(task));
+        if (location === activeList) visible.push(taskRow(task, renderedDay));
       }
       for (const location of ['inbox', 'today', 'planned']) {
         document.querySelector('#count-' + location).textContent = counts[location];
@@ -311,7 +333,7 @@
       }
     }
 
-    function taskRow(task) {
+    function taskRow(task, today) {
       const row = document.createElement('li');
       row.dataset.id = task.id;
       row.classList.toggle('done', Boolean(task.done));
@@ -350,6 +372,12 @@
           dateStyle: 'short', timeStyle: 'short'
         });
         metadata.append(reminder);
+        if (localDay(task.reminder_at) < today) {
+          const overdue = document.createElement('span');
+          overdue.className = 'high';
+          overdue.textContent = 'Atrasada';
+          metadata.append(overdue);
+        }
       }
       if (metadata.childElementCount) content.append(metadata);
 
@@ -362,8 +390,8 @@
       menu.append(action('Editar', () => openEditor(task)));
       menu.append(action(task.priority === 'high' ? 'Prioridade normal' : 'Prioridade alta', () =>
         changeTask(task, { priority: task.priority === 'high' ? 'normal' : 'high' }, 'Prioridade atualizada.')));
-      for (const destination of ['inbox', 'today', 'planned']) {
-        if (taskList(task) === destination) continue;
+      for (const destination of task.reminder_at ? [] : ['inbox', 'today', 'planned']) {
+        if (taskList(task, today) === destination) continue;
         const title = listLabels[destination];
         menu.append(action('Mover para ' + title, () =>
           changeTask(task, { list: destination, done: false }, `Tarefa movida para ${title}.`)));
@@ -441,6 +469,7 @@
         if (workspace !== current) return;
         tasks = tasks.map(task => task.id === updated.id ? updated : task);
         dialog.close();
+        if ('reminder_at' in changes) activeList = taskList(updated);
         render();
         focusTask(updated.id, 'summary');
         message('Tarefa atualizada.');
@@ -462,7 +491,14 @@
       });
     }
 
+    function resizeCapture() {
+      input.style.height = 'auto';
+      input.style.height = input.scrollHeight + (input.offsetHeight - input.clientHeight) + 'px';
+    }
+
+    window.addEventListener('resize', resizeCapture);
     function updateCaptureButton() {
+      if (!appMain.hidden) resizeCapture();
       const length = Array.from(input.value.trim()).length;
       const lengthHint = document.querySelector('#capture-length');
       lengthHint.textContent = length > descriptionLimit
